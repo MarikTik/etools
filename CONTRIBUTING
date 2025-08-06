@@ -1,0 +1,42 @@
+# Contributing to etools Library
+
+## How to Contribute
+
+The contribution process follows the standard GitHub workflow.
+### 1. Reporting a Bug
+
+Check the [Issues]() to see if the bug has already been reported.
+
+If not, open a new issue. Please provide a clear and concise description, including:
+
+- A brief summary of the bug.
+
+- The steps to reproduce the behavior.
+
+- The expected behavior.
+
+- The hardware and software versions (e.g., ESP32, Arduino Core v2.0.14).
+
+### 2. Suggesting an Improvement or New Feature
+
+Open a new issue in the [Issues]() section.
+
+Clearly describe the feature you would like to see, explaining its purpose and why you believe it would be a valuable addition to the library.
+
+### 3. Submitting Code
+
+The workflow is as follows:
+
+1. Fork the repository to your own GitHub account.
+2. Clone the forked repository to your local machine.
+3. Create a new branch for your changes. Please use a descriptive name (e.g., fix/bug-description or feat/new-feature-name).
+4. Make your changes. Adhere to the existing coding style and C++17 standard. Write clean, well-commented code.
+5. Test your changes. Ensure your changes do not introduce new bugs and that all existing functionality remains intact.
+6. Update documentation. If your changes affect the public API or add a new feature, please update the relevant documentation.
+7. Commit your changes. Write a clear, descriptive commit message.
+Push your branch to your fork on GitHub.
+Open a Pull Request (PR) from your branch to the main branch of the original repository.
+
+I will review all pull requests and work with you to get your changes merged.
+
+By contributing to this project, you agree that your contributions will be licensed under the MIT License.
