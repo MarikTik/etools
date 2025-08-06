@@ -60,7 +60,7 @@ namespace etools::meta {
         * @return `true` if the flag for type `T` is set, `false` otherwise.
         */
         template <typename T>
-        constexpr bool test() const;
+        constexpr bool test() const noexcept;
      
         /**
         * @brief Sets the flag associated with a given type.
@@ -73,7 +73,7 @@ namespace etools::meta {
         * @tparam T The type to set the flag for.
         */
         template <typename T>
-        constexpr void set();
+        constexpr void set() noexcept;
      
         /**
         * @brief Resets (clears) the flag associated with a given type.
@@ -86,7 +86,7 @@ namespace etools::meta {
         * @tparam T The type to reset the flag for.
         */
         template <typename T>
-        constexpr void reset();
+        constexpr void reset() noexcept;
      
     private:
         std::bitset<sizeof...(Types)> _bits; ///< Bitset storing the flags.
