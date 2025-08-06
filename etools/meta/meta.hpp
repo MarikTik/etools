@@ -24,4 +24,5 @@
 #ifndef ETOOLS_META_HPP_
 #define ETOOLS_META_HPP_
 #include "info_gen.hpp"
+#include "traits.hpp"
 #endif //ETOOLS_META_HPP_
