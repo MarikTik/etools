@@ -384,8 +384,8 @@ namespace etools::meta {
     * using my_type = etools::meta::nth_t<1, int, double, float>; // my_type is double
     * @endcode
     */
-    template<typename N, typename... Ts>
-    using nth_t = nth<N, Ts...>::type;
+    template<size_t N, typename... Ts>
+    using nth_t = typename nth<N, Ts...>::type;
     
     /**
     * @brief Type trait that resolves to the smallest unsigned integer type
