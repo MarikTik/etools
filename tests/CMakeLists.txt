@@ -8,6 +8,7 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.
 # Define a list of test files that should be compiled with assertions disabled.
 set(NDEBUG_TEST_SOURCES
     memory/test_envelope.cpp
+    memory/test_envelope_view.cpp
 )
 
 foreach(test_src ${TEST_SOURCES})
