@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 /**
 * @file info_gen.hpp
 *
