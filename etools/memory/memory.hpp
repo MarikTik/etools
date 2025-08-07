@@ -19,4 +19,5 @@
 #define ETOOLS_MEMORY_MEMORY_HPP_
 #include "envelope.hpp"
 #include "envelope_view.hpp"
+#include "slot.hpp"
 #endif // ETOOLS_MEMORY_MEMORY_HPP_
