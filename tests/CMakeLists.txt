@@ -26,6 +26,13 @@ foreach(test_src ${TEST_SOURCES})
     if(index GREATER_EQUAL 0)
         message(STATUS "Compiling test '${test_name}' with assertions disabled (NDEBUG).")
         target_compile_definitions(${test_name} PRIVATE NDEBUG)
+        # Apply release-level optimizations for NDEBUG tests.
+        target_compile_options(${test_name} PRIVATE -O3)
+        target_link_options(${test_name} PRIVATE -O3)
+    else()
+        # Compile all other tests with full debug symbols and no optimizations.
+        message(STATUS "Compiling test '${test_name}' with full debug info.")
+        target_compile_options(${test_name} PRIVATE -g -O0)
     endif()
     
     gtest_discover_tests(${test_name})
