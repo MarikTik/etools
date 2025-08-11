@@ -16,6 +16,7 @@
 * - 2025-08-10
 *      - added use of `std::launder` for compile optimization
 *        safety guarantee on different type memory access.
+*      - Added separate `std::launder` alias in case it is not defined on the platform. 
 *
 */
 
@@ -24,6 +25,14 @@
 #include "slot.hpp"
 #include <cassert>
 #include <new>
+
+// Make sure std::launder is defined.
+#if __cplusplus < 201703L || !defined(__cpp_lib_launder)
+namespace std {
+    template<class T> constexpr T* launder(T* p) noexcept { return p; }
+}
+#endif
+
 namespace etools::memory {
 
     template <typename T>
