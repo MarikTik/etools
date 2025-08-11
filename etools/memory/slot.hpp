@@ -24,10 +24,17 @@
 * MIT License
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
+*
+* @par Changelog
+* - 2025-08-10
+*      - Changed type of `_mem` to direct aligned buffer with using std::byte array instaed following 
+*        future deprecation of `std::aligned_storage`.
 */
+
 #ifndef ETOOLS_MEMORY_SLOT_HPP_
 #define ETOOLS_MEMORY_SLOT_HPP_
 #include <type_traits>
+#include <cstddef>
 
 namespace etools::memory {
     /**
@@ -148,7 +155,7 @@ namespace etools::memory {
         * This memory is never deallocated and lives for the duration of the program.
         * Placement new is used to construct the object into this buffer.
         */
-        static inline std::aligned_storage_t<sizeof(T), alignof(T)> _mem;
+        alignas(T) static inline std::byte _mem[sizeof(T)];
         
         /**
         * @brief Internal flag indicating whether the object is currently constructed.
