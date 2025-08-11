@@ -61,8 +61,6 @@ namespace etools::memory {
         * 
         * @tparam Ts... The types to deserialize and extract from the view.
         * @return A tuple containing the deserialized values.
-        *
-        * @throws std::runtime_error If deserialization fails or capacity limits are exceeded.
         */
         template<typename ...Ts>
         inline std::tuple<Ts...> unpack() const;
