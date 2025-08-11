@@ -12,11 +12,18 @@
 * MIT License
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
+* @par Changelog
+* - 2025-08-10
+*      - added use of `std::launder` for compile optimization
+*        safety guarantee on different type memory access.
+*
 */
+
 #ifndef ETOOLS_MEMORY_SLOT_TPP_
 #define ETOOLS_MEMORY_SLOT_TPP_
 #include "slot.hpp"
 #include <cassert>
+#include <new>
 namespace etools::memory {
 
     template <typename T>
@@ -45,21 +52,21 @@ namespace etools::memory {
     template <typename T>
     inline void slot<T>::destroy() noexcept(std::is_nothrow_destructible_v<T>) {
         if (not _constructed) return; // No object to destroy
-        reinterpret_cast<T*>(&_mem)->~T();
+        auto *p = std::launder(reinterpret_cast<T*>(&_mem));
+        p->~T();
         _constructed = false;
     }
 
     template <typename T>
     inline T *slot<T>::get() noexcept  {
         if (not _constructed) return nullptr;
-        return reinterpret_cast<T*>(&_mem);
+        return std::launder(reinterpret_cast<T*>(&_mem));
     }
     
     template <typename T>
     inline const T *slot<T>::get() const noexcept {
         if (not _constructed) return nullptr;
-        return reinterpret_cast<const T*>(&_mem);
+        return std::launder(reinterpret_cast<const T*>(&_mem));
     }
-
 } // namespace etools::memory
 #endif // ETOOLS_MEMORY_SLOT_TPP_
