@@ -169,4 +169,4 @@ namespace etools::memory {
 } // namespace etools::memory
 
 #include "slot.tpp"
-#endif // ETASK_TOOLS_SLOT_HPP_
+#endif // ETOOLS_TOOLS_SLOT_HPP_
