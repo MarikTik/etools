@@ -25,6 +25,7 @@ namespace etools::memory{
     envelope<Deleter>::envelope(std::unique_ptr<std::byte[], Deleter> data, std::size_t capacity)
         :
         _data{std::move(data)},
+        _size{0},
         _capacity{capacity}
     {
     }
@@ -33,8 +34,9 @@ namespace etools::memory{
     envelope<Deleter>::envelope(std::unique_ptr<std::byte[], Deleter> data, std::size_t capacity, std::size_t size)
         : 
         _data{std::move(data)},
-        _capacity{capacity},
-        _size{size}
+         _size{size},
+        _capacity{capacity}
+       
     {
         assert(size <= capacity && "Envelope size cannot exceed capacity");
         if (size > capacity) _size = capacity;
