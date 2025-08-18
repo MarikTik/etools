@@ -80,7 +80,7 @@ if(ETOOLS_BUILD_TESTS AND BUILD_TESTING)
     FetchContent_MakeAvailable(googletest)
 
     # Keep tests out of the default 'all' target to avoid surprising consumers.
-    add_subdirectory(tests EXCLUDE_FROM_ALL)
+    add_subdirectory(tests)
 endif()
 
 # ---------------------------------------------------------------------------------------
