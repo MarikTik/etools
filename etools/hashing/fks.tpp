@@ -16,6 +16,7 @@
 #ifndef ETOOLS_HASHING_FKS_TPP_
 #define ETOOLS_HASHING_FKS_TPP_
 #include "fks.hpp"
+#include "../meta/utility.hpp"
 namespace etools::hashing{
         namespace details{
         template <typename KeyType, std::size_t N, std::size_t BucketCount>
@@ -129,7 +130,7 @@ namespace etools::hashing{
         // Keys in pack order (final indices will be 0..N-1)
         constexpr std::array<KeyType, N> keys{ { Keys... } };
         // Ensure distinct keys
-        static_assert(all_distinct(keys), "Keys must be distinct");
+        static_assert(meta::all_distinct_fast(keys), "Keys must be distinct");
         // 1) First-level: bucketization (power-of-two bucket count)
         constexpr std::size_t M = ceil_pow2<std::size_t>(N);  // >= 1
         static_assert(M && ((M & (M - 1)) == 0), "BucketCount must be power-of-two");

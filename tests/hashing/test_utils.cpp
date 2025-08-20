@@ -224,10 +224,6 @@ constexpr std::array<int, 3> AD_OK  { {1, 2, 3} };
 constexpr std::array<int, 3> AD_BAD { {1, 2, 1} };
 constexpr std::array<unsigned, 0> AD_EMPTY { };
 
-static_assert(all_distinct(AD_OK),    "all_distinct true at compile time");
-static_assert(!all_distinct(AD_BAD),  "all_distinct false at compile time");
-static_assert(all_distinct(AD_EMPTY), "all_distinct handles empty arrays");
-
 // bucket_of constexpr basic properties
 static_assert(bucket_of<std::uint32_t>(0u, 1u) == 0u, "bucket_of with 1 bucket is always 0");
 static_assert(bucket_of<std::uint8_t>(0u, 8u) == 0u,  "0 maps to bucket 0");
@@ -244,19 +240,6 @@ static_assert(top_bits<std::uint32_t>(0xFFFFFFFFu, 32) == static_cast<std::size_
 static_assert(top_bits<std::uint64_t>(0x0123456789ABCDEFULL, 16) == 0x0123u,
               "top 16 bits of 0x0123456789ABCDEF");
 #endif
-
- 
-TEST(AllDistinct, HandlesBasicCases) {
-    std::array<int,5> u {{1,2,3,4,5}};
-    std::array<int,5> d1{{1,2,3,4,1}};
-    std::array<int,5> d2{{2,2,2,2,2}};
-    std::array<unsigned,0> e{};
-
-    EXPECT_TRUE(all_distinct(u));
-    EXPECT_FALSE(all_distinct(d1));
-    EXPECT_FALSE(all_distinct(d2));
-    EXPECT_TRUE(all_distinct(e));
-}
 
 TEST(BucketOf, RangeAndPowerOfTwoMasking) {
     // Use several bucket sizes (powers of two)

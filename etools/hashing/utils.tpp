@@ -140,14 +140,6 @@ namespace etools::hashing{
         return bit_width<R>(static_cast<T>(x - 1));
     }
 
-    template <class T, std::size_t N>
-    constexpr bool all_distinct(const std::array<T, N> &a) noexcept {
-        for (std::size_t i = 0; i < N; ++i)
-        for (std::size_t j = i + 1; j < N; ++j)
-        if (a[i] == a[j]) return false;
-        return true;
-    }
-
     template <typename Key>
     constexpr std::size_t bucket_of(Key k, std::size_t bucket_count) noexcept{
         // Use Word-width mixing (32 or 64 typically); mask because bucket_count is a power of two.

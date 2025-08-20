@@ -212,21 +212,6 @@ namespace etools::hashing{
     [[nodiscard]] constexpr R ceil_log2(T x) noexcept;
     
     /**
-    * @brief Check that all elements in the array are pairwise distinct.
-    *
-    * Scans the array with a simple O(N^2) comparison and returns true if no two
-    * elements compare equal. Works in constexpr contexts and with any type that
-    * supports equality comparison.
-    *
-    * @tparam T Element type (must be equality comparable).
-    * @tparam N Array size (can be zero).
-    * @param[in] a Input array.
-    * @return true if all elements are distinct, false otherwise.
-    */
-    template <class T, std::size_t N>
-    [[nodiscard]] constexpr bool all_distinct(const std::array<T, N>& a) noexcept;
-    
-    /**
     * @brief Map a key to a bucket index using native-width mixing.
     *
     * Mixes the key with `mix_native` and selects a bucket by masking with
