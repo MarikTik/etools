@@ -2,6 +2,8 @@
 /**
 * @file utility.hpp
 *
+* @ingroup etools_meta etools::meta
+*
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2025-08-19
@@ -14,6 +16,7 @@
 #ifndef ETOOLS_META_UTILITY_HPP_
 #define ETOOLS_META_UTILITY_HPP_
 #include <array>
+
 namespace etools::meta{
     
     

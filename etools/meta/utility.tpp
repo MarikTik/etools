@@ -91,7 +91,6 @@ namespace etools::meta{
             return all_distinct_bitmap<T, N>(keys);
         else 
             return all_distinct_probe<T, N>(keys);
-        
     }
 
 } // namespace etools::meta
