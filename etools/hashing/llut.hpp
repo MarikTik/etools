@@ -100,11 +100,11 @@ namespace etools::hashing {
         *
         * The table length is `size() == max(Keys) + 1`. Each present key maps to its index
         * in `[0..keys()-1]`, where `keys() == sizeof...(Keys)`. Holes are filled with the sentinel
-        * `not_found() == keys()`.
+        * `not_found()` == `keys()`.
         *
         * Invariants:
         * 
-        * - `Key` is an unsigned integral type (`std::is_unsigned_v<Key>`).
+        * - `KeyType` is an unsigned integral type (`std::is_unsigned_v<Key>`).
         * 
         * - `keys() > 0`.
         * 
