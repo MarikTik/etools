@@ -66,7 +66,7 @@ namespace etools::hashing{
 
     template<typename KeyType>
     template<KeyType... Keys>
-    constexpr const details::llut_impl<KeyType, Keys...>& llut<KeyType>::generate() noexcept
+    constexpr const details::llut_impl<KeyType, Keys...>& llut<KeyType>::instance() noexcept
     {
         return details::llut_impl_singleton<KeyType, Keys...>;
     }

@@ -16,7 +16,7 @@ static_assert(IMPL_U8::not_found() == 3,            "sentinel equals keys()");
 static_assert(IMPL_U8::size() == 8,                 "size() == max_key + 1 (7+1)");
 
 // Pull the canonical table as a constexpr reference:
-constexpr const auto& Tc = LUT_U8::generate<2,5,7>();
+constexpr const auto& Tc = LUT_U8::instance<2,5,7>();
 
 static_assert(Tc.keys() == 3, "keys() == 3");
 static_assert(Tc.size()  == 8, "size() == 8");
@@ -34,7 +34,7 @@ static_assert(Tc(9) == Tc.not_found(),    "9 out of range");
 // ---------------- Runtime tests (GoogleTest) ----------------
 
 TEST(llut_runtime, structure_constants) {
-    const auto& T = LUT_U8::generate<2,5,7>();
+    const auto& T = LUT_U8::instance<2,5,7>();
     EXPECT_EQ(IMPL_U8::keys(), 3u);
     EXPECT_EQ(IMPL_U8::not_found(), 3u);
     EXPECT_EQ(IMPL_U8::size(), 8u);
@@ -43,7 +43,7 @@ TEST(llut_runtime, structure_constants) {
 }
 
 TEST(llut_runtime, operator_lookup) {
-    const auto& T = LUT_U8::generate<2,5,7>();
+    const auto& T = LUT_U8::instance<2,5,7>();
     EXPECT_EQ(T(0), T.not_found());
     EXPECT_EQ(T(1), T.not_found());
     EXPECT_EQ(T(2), 0u);
@@ -57,7 +57,7 @@ TEST(llut_runtime, operator_lookup) {
 }
 
 TEST(llut_runtime, singleton_identity) {
-    const auto& A = LUT_U8::generate<2,5,7>();
-    const auto& B = LUT_U8::generate<2,5,7>();
+    const auto& A = LUT_U8::instance<2,5,7>();
+    const auto& B = LUT_U8::instance<2,5,7>();
     EXPECT_EQ(&A, &B); // same address -> same object
 }

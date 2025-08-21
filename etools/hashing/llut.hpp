@@ -153,7 +153,7 @@ namespace etools::hashing {
             /**
             * @brief Constant-time query: return index for `key`, or `not_found()` if absent/out of range.
             *
-            * @param key The key to look up.
+            * @param[in] key The key to look up.
             * @return Undex in `[0..keys()-1]` or `not_found()` if the key is not present or out of range.
             */
             [[nodiscard]] constexpr std::size_t operator()(KeyType key) const noexcept;
@@ -210,7 +210,6 @@ namespace etools::hashing {
         {
             return llut_impl<Key, Keys...>{};
         }
-
         
         /**
         * @brief Canonical singleton: one `inline constexpr` instance per `<Key, Keys...>` in the program.
@@ -243,7 +242,7 @@ namespace etools::hashing {
         * @return `constexpr const details::llut_impl<KeyType, Keys...>&` reference to the singleton.
         */
         template<KeyType... Keys>
-        [[nodiscard]] static constexpr const details::llut_impl<KeyType, Keys...>& generate() noexcept;
+        [[nodiscard]] static constexpr const details::llut_impl<KeyType, Keys...>& instance() noexcept;
 
         /** @brief Deleted copy constructor. */
         llut(const llut&) = delete;
