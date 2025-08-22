@@ -1,85 +1,72 @@
 // SPDX-License-Identifier: MIT
 /**
 * @file fks.hpp
-* 
-* @brief FKS Perfect Hash (compile-time generator + O(1) lookup)
-* 
-* @ingroup etools_hashing etools::hashing
 *
-* Overview
-* --------
-* This module implements a two-level hash table following the
-* Fredman–Komlós–Szemerédi (FKS) scheme to achieve O(1) lookups with no collisions
-* over a *fixed* key set. All construction happens at compile time using template
-* metaprogramming and `constexpr` evaluation; the runtime artifact is a compact,
-* read-only table.
-* 
-* How it works
-* ------------
-* 1) First level (bucketing):
-*    - Choose M = next power-of-two ≥ N.
-*    - Hash each key to a bucket in [0..M-1] using a native-width mixer and a mask.
-*    - Let s_b be the number of keys in bucket b.
-* 
-* 2) Second level (collision-free per bucket):
-*    - For each bucket b, choose a table size S_b = 2^r_b where r_b = ceil_log2(s_b^2).
-*    - Search for an odd multiplier a_b such that the function
-*         g_b(key) = top_bits( mix(key) * a_b, r_b )
-*      produces distinct positions for all keys in b.
-*    - Place each key at base[b] + g_b(key) in a single flat array of size
-*      TOTAL = sum_b S_b. Store its final index and keep the original key in a
-*      `_keys_by_index` array for exact membership checks.
-* 
-* Properties
-* ----------
-* - Lookup: O(1) time; a couple of array reads and multiplications.
-* - Memory: ~ O(N). With M ≈ N, the expected TOTAL is around ~2N–3N.
-* - Non-members: return N (use `idx < N` to branchlessly reject).
-* - Determinism: given the key set and mixer, the table is immutable/read-only.
-* 
-* Note
-* ----------
-* All tables produced are `constexpr` data and live in Flash/ROM. For N≈100,
-* expect around 2 KB (exact usage depends on key width and the realized `total` slots.
-* 
-* Caveats
-* -------
-* - The scheme assumes non-adversarial keys. For adversarial settings consider
-*   salting the mixer or forcing a larger M.
-* - On 32-bit targets, if your keys are truly 64-bit and differ only in the upper
-*   32 bits, native 32-bit mixing collapses them. In that case, force 64-bit mixing
-*   (see the note in this file about hashing width policy).
-* 
-* References
-* ----------
-* - Fredman, Komlós, Szemerédi. "Storing a Sparse Table with O(1) Access Time",
-*   JACM, 1984. (FKS hashing)
+* @brief Perfect hashing over a fixed key set (FKS): two-level structure with O(1) lookups.
 *
-* Example
-* -------
-* using Gen = etools::hashing::fks_hash_gen<std::uint64_t>;
-* 
-* // Keys are NTTPs; indices are pack order 0..N-1
-* constexpr auto FKS = Gen::generate<1ULL, 5ULL, 2ULL, 10ULL, 7ULL>();
-* 
-* static_assert(FKS.size() == 5, "N");
-* static_assert(FKS(1)  == 0);
-* static_assert(FKS(5)  == 1);
-* static_assert(FKS(2)  == 2);
-* static_assert(FKS(10) == 3);
-* static_assert(FKS(7)  == 4);
-* static_assert(FKS(999) == FKS.not_found);
-* 
-* // Runtime use:
-* std::size_t idx = FKS(10);
-* if (idx < FKS.size()) {
-*     // found
+* @details
+* This header provides a header-only, compile-time generator for a two-level
+* Fredman–Komlós–Szemerédi (FKS) perfect hash structure. Given a fixed set of
+* unsigned keys as non-type template parameters (NTTPs), it constructs a compact,
+* read-only lookup artifact that maps those keys to dense indices `[0..N-1]` in
+* the order they are provided. The resulting table performs O(1) lookups without
+* collisions and returns a sentinel (`N`) for non-members.
+*
+* **Why this exists**
+* - Constant-time membership and indexing for *fixed* key sets
+* - Completely static/constexpr — lives in ROM/Flash on embedded targets
+* - No dynamic allocation, no runtime initialization order issues
+*
+* **How it works (high-level)**
+* - First level (bucketing): choose a power-of-two bucket count `M≈N`, and bucketize
+*   keys by a fast native-width mixer.
+* - Second level (per bucket): choose a small table size `S_b` and find an odd
+*   multiplier `a_b` such that the multiply–shift hash places all keys of that
+*   bucket without collisions.
+* - The buckets are laid out in a flat array; lookups combine a bucket base with
+*   a local position and verify the original key.
+*
+* **Surface**
+* - `etools::hashing::fks<Key>` — Facade. Use `fks<Key>::instance<Keys...>()` to
+*   obtain a `constexpr const&` to the canonical, per-key-set singleton.
+* - `etools::hashing::details::fks_impl<Key, Keys...>` — implementation. Immutable,
+*   constexpr-constructible structure that owns the arrays and exposes `operator()`,
+*   `size()`, `not_found()`, `buckets()`, and `slots()`.
+*
+* **References**
+* - Fredman, Komlós, Szemerédi. “Storing a Sparse Table with O(1) Access Time.”
+*   *Journal of the ACM*, 1984.
+*
+* **Example**
+* @code
+* #include <cstdint>
+* #include "etools/hashing/fks.hpp"
+*
+* using F = etools::hashing::fks<std::uint64_t>;
+*
+* // Keys are NTTPs; indices follow the pack order.
+* constexpr const auto& H = F::instance<1ULL, 5ULL, 2ULL, 10ULL, 7ULL>();
+*
+* static_assert(H.size() == 5);
+* static_assert(H(1)  == 0);
+* static_assert(H(5)  == 1);
+* static_assert(H(2)  == 2);
+* static_assert(H(10) == 3);
+* static_assert(H(7)  == 4);
+* static_assert(H(999) == H.not_found());
+*
+* // Runtime pattern:
+* std::size_t idx = H(10);
+* if (idx < H.size()) {
+*   // found
 * } else {
-*     // not found
+*   // not found
 * }
+* @endcode
+*
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
-* @date 2025-08-19
+* @date 2025-08-20
 *
 * @copyright
 * MIT License
@@ -88,11 +75,33 @@
 */
 #ifndef ETOOLS_HASHING_FKS_HPP_
 #define ETOOLS_HASHING_FKS_HPP_
-#include "utils.hpp"
-#include "../meta/traits.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <type_traits>
-namespace etools::hashing{
-    namespace details{
+
+#include "utils.hpp"            // mix_native, top_bits, ceil_pow2, etc. (constexpr)
+#include "../meta/traits.hpp"   // meta::smallest_uint_t<N>
+#include "../meta/utility.hpp"  // meta::all_distinct(...)
+
+namespace etools::hashing {
+    
+    /**
+    * @brief Forward reference to facade for FKS perfect hashing over a fixed key set.
+    *
+    * @tparam KeyType Unsigned integral key type.
+    */
+    template <typename KeyType>
+    class fks;
+    
+    /**
+    * @brief Internal implementation namespace.
+    *
+    * @warning Entities in `details` are implementation details and are not part of the
+    *          stable public API.
+    */
+    namespace details {
         /**
         * @brief Count how many keys fall into each first-level bucket.
         *
@@ -108,7 +117,7 @@ namespace etools::hashing{
         template <typename KeyType, std::size_t N, std::size_t BucketCount>
         [[nodiscard]] constexpr std::array<std::size_t, BucketCount>
         compute_bucket_counts(const std::array<KeyType, N>& keys) noexcept;
-
+        
         /**
         * @brief Compute CSR-style offsets from per-bucket counts.
         *
@@ -123,7 +132,7 @@ namespace etools::hashing{
         template <std::size_t BucketCount>
         [[nodiscard]] constexpr std::array<std::size_t, BucketCount + 1>
         offsets_from_counts(const std::array<std::size_t, BucketCount>& counts) noexcept;
-
+        
         /**
         * @brief Build a CSR (Compressed Sparse Row) "items" array of key indices grouped by bucket.
         *
@@ -141,8 +150,8 @@ namespace etools::hashing{
         template <typename KeyType, std::size_t N, std::size_t BucketCount>
         [[nodiscard]] constexpr std::array<std::size_t, N>
         items_csr(const std::array<KeyType, N>& keys,
-                  const std::array<std::size_t, BucketCount + 1>& off) noexcept;
-
+            const std::array<std::size_t, BucketCount + 1>& off) noexcept;
+            
         /**
         * @brief Decide per-bucket second-level table width `r_b`.
         *
@@ -156,7 +165,7 @@ namespace etools::hashing{
         template <std::size_t BucketCount>
         [[nodiscard]] constexpr std::array<std::uint8_t, BucketCount>
         compute_rbits(const std::array<std::size_t, BucketCount>& counts) noexcept;
-
+        
         /**
         * @brief Sum of all second-level table sizes.
         *
@@ -169,7 +178,7 @@ namespace etools::hashing{
         template <std::size_t BucketCount>
         [[nodiscard]] constexpr std::size_t
         total_slots_from_rbits(const std::array<std::uint8_t, BucketCount>& r) noexcept;
-
+        
         /**
         * @brief Compute base offsets for second-level tables.
         *
@@ -183,166 +192,269 @@ namespace etools::hashing{
         template <std::size_t BucketCount>
         [[nodiscard]] constexpr std::array<std::size_t, BucketCount>
         base_from_rbits(const std::array<std::uint8_t, BucketCount>& r) noexcept;
+        
+        /**
+        * @brief Implementation type: immutable, constexpr-built FKS table for a fixed key pack.
+        *
+        * @tparam KeyType Unsigned integral key type.
+        * @tparam Keys Distinct keys; pack order defines dense indices `[0..N-1]`.
+        *
+        * ```cpp
+        * using Impl = etools::hashing::details::fks_impl<std::uint8_t, 2, 5, 7>;
+        * // Prefer: using F = etools::hashing::fks<std::uint8_t>;
+        * //          constexpr const auto& H = F::instance<2,5,7>();
+        * ```
+        *
+        * @note This class is constructed at compile time. Instances are exposed via the facade.
+        * @note Lookups are O(1). Non-members return `not_found()` (equal to `size()`).
+        * @warning Do not instantiate directly; use `fks<KeyType>::instance<Keys...>()`.
+        */
+        template <typename KeyType, KeyType... Keys>
+        class fks_impl {    
+        public:
+            /**
+            * @brief Number of keys in the perfect set (also used as the sentinel).
+            *
+            * @return Count of NTTP keys `N`.
+            */
+            [[nodiscard]] static constexpr std::size_t size() noexcept;
+            
+            /**
+            * @brief Sentinel index meaning “not a member”.
+            *
+            * @return `size()` (i.e., `N`).
+            */
+            [[nodiscard]] static constexpr std::size_t not_found() noexcept;
+            
+            /**
+            * @brief First-level bucket count (power of two).
+            *
+            * @return `M = ceil_pow2(N)` (at least 1).
+            */
+            [[nodiscard]] static constexpr std::size_t buckets() noexcept;
+            
+            /**
+            * @brief Total slots across all second-level tables.
+            *
+            * @return `Σ_b (1 << r_b)` with `r_b` chosen per bucket.
+            */
+            [[nodiscard]] static constexpr std::size_t slots() noexcept;
+            
+            /**
+            * @brief Constant-time lookup.
+            *
+            * @param[in] key Query key of type `KeyType`.
+            * @return Dense index in `[0..size()-1]` if present; otherwise `not_found()`.
+            *
+            * ```cpp
+            * using F = etools::hashing::fks<std::uint32_t>;
+            * constexpr const auto& H = F::instance<10,20,30>();
+            * std::size_t i = H(20);                   // 1
+            * bool found = (i < H.size());             // true
+            * ```
+            */
+            [[nodiscard]] constexpr std::size_t operator()(KeyType key) const noexcept;
+            
+            /**
+            * @brief Deleted copy constructor (non-copyable).
+            *
+            * @warning The structure is immutable and exposed as a singleton reference.
+            */
+            fks_impl(const fks_impl&) = delete;
+
+            /**
+            * @brief Deleted copy assignment (non-assignable).
+            */
+            fks_impl& operator=(const fks_impl&) = delete;
+
+            /**
+            * @brief Deleted move constructor (non-movable).
+            */
+            fks_impl(fks_impl&&) = delete;
+
+            /**
+            * @brief Deleted move assignment (non-movable).
+            */
+            fks_impl& operator=(fks_impl&&) = delete;
+            
+        private:
+            /**
+            * @typedef index_t
+            *
+            * @brief Compact index storage type for slots.
+            *
+            * Chosen as the smallest unsigned type able to represent `[0..size()]`.
+            * This type is private by design and not part of the public API surface.
+            */
+            using index_t = meta::smallest_uint_t<size()>; // public API does not expose it
+            
+            /**
+            * @brief Per-bucket odd multipliers `a_b` for the multiply–shift hash at level 2.
+            *
+            * Size equals `buckets()`.
+            */
+            std::array<std::size_t, buckets()> _local_multiplier{}; // a_b (odd)
+
+            /**
+            * @brief Per-bucket bit widths `r_b` such that second-level size is `1 << r_b`.
+            *
+            * Size equals `buckets()`.
+            */
+            std::array<std::uint8_t, buckets()> _local_bits{};       // r_b
+
+            /**
+            * @brief Base offsets into the flattened slots array for each bucket.
+            *
+            * Size equals `buckets()`. The slice
+            * `[ _base_offset[b], _base_offset[b] + (1 << _local_bits[b]) )`
+            * holds bucket `b`’s second-level table.
+            */
+            std::array<std::size_t, buckets()> _base_offset{};      // base[b]
+
+            /**
+            * @brief Flattened second-level table storing final indices or the sentinel.
+            *
+            * Size equals `slots()`. Each slot is either an index in `[0..size()-1]`
+            * or `not_found()` (equal to `size()`).
+            */
+            std::array<index_t, slots()> _slot_to_index{};    // [0..N-1] or N
+
+            /**
+            * @brief Membership array: original keys placed by their final indices.
+            *
+            * Used to verify equality and reject accidental false positives.
+            * Size equals `size()`.
+            */
+            std::array<KeyType, size()> _keys_by_index{};    // original keys at final indices
+            
+            /**
+            * @brief Private constexpr constructor; builds the entire structure.
+            *
+            * @note Construction is constexpr; no dynamic memory is used.
+            */
+            constexpr fks_impl() noexcept;
+        
+            /**
+            * @brief Compute the local position within a bucket for a given key.
+            *
+            * @param[in] b   Bucket index in `[0..buckets()-1]`.
+            * @param[in] key Query key.
+            * @return Local offset in `[0..(1<<_local_bits[b]) - 1]`.
+            */
+            [[nodiscard]] constexpr std::size_t local_pos(std::size_t b, KeyType key) const noexcept;
+            
+            /**
+            * @brief Friend factory permitted to invoke the private constructor.
+            *
+            * @return A value-initialized implementation object (used to form the singleton).
+            */
+            template <typename K, K... Ks> friend constexpr fks_impl<K, Ks...> make_fks_impl() noexcept;
+
+            /**
+            * @brief facade friendship for access to the canonical singleton.
+            */
+            template <typename K>          friend class ::etools::hashing::fks;
+            
+            /**
+            * @brief Compile-time sanity: `buckets()` is a nonzero power of two.
+            */
+            static_assert(buckets() && ((buckets() & (buckets() - 1)) == 0),
+            "BucketCount must be a nonzero power of two");
+            
+            /**
+            * @brief Compile-time sanity: key type is unsigned integral.
+            */
+            static_assert(std::is_unsigned_v<KeyType>, "KeyType must be unsigned integral");
+        };
+        
+        /**
+        * @brief constexpr factory: constructs an `fks_impl` by value.
+        *
+        * @tparam Key Unsigned integral key type.
+        * @tparam Keys Distinct keys; pack order defines indices.
+        * @return A value-initialized `fks_impl<Key, Keys...>`.
+        */
+        template <typename Key, Key... Keys>
+        constexpr fks_impl<Key, Keys...> make_fks_impl() noexcept;
+        
+        /**
+        * @brief Canonical singleton for a given key set.
+        *
+        * @tparam Key Unsigned integral key type.
+        * @tparam Keys Distinct keys; pack order defines indices.
+        *
+        * @note `inline constexpr` variable template with static storage duration.
+        * @warning Internal — prefer using the facade `fks<Key>::instance<Keys...>()`.
+        */
+        template <typename Key, Key... Keys>
+        inline constexpr auto fks_impl_singleton = make_fks_impl<Key, Keys...>();
+            
     } // namespace details
-    
+        
     /**
-    * @brief Read-only lookup artifact for a two-level FKS perfect hash.
+    * @brief Facade for FKS perfect hashing over a fixed key set.
     *
-    * Holds per-bucket parameters and the flattened second-level table that
-    * maps each key to a unique index in [0..N-1]. Non-members return `not_found`
-    * (which equals N). Designed to be produced at compile time by @ref fks_hash_gen.
-    * 
-    * Instances are intended to be produced at compile time by `fks_hash_gen`.
-    * 
-    * @tparam KeyType     Unsigned key type.
-    * @tparam N           Number of keys.
-    * @tparam BucketCount Power-of-two first-level bucket count.
-    * @tparam TotalSlots  Total size of all second-level tables combined.
-    */
-    template <
-        typename KeyType,
-        std::size_t N,
-        std::size_t BucketCount,
-        std::size_t TotalSlots
-    >
-    class fks_table {
-        /**
-        * @brief Compact index storage type for slots.
-        *
-        * Stores either a valid index in [0..N-1] or the sentinel `N`.
-        * Chosen to minimize memory: 16-bit when N ≤ 65535, otherwise a wider type.
-        */
-        using index_t = meta::smallest_uint_t<N>;
-    public:
-        /**
-        * @brief Return the index for `key`, or the sentinel `not_found()` if absent.
-        *
-        * Operation:
-        * 1) Mix `key` with `mix_native()` and select a first-level bucket using a mask.
-        * 2) Read bucket’s multiply–shift parameters (odd multiplier a_b and r_b bits).
-        * 3) Compute the local position from the top r_b bits of (mixed * a_b).
-        * 4) Load the candidate index from the flat slots array.
-        * 5) If it equals the sentinel, return `not_found()`; otherwise verify
-        *    the original key via the membership array and return the index if matched.
-        *
-        * @note Average O(1), no dynamic memory, branch-light.
-        *
-        * @param[in] key Query key.
-        * @return Index in [0..N-1] if present; otherwise not_found() (equals N).
-        */
-        [[nodiscard]] constexpr std::size_t operator()(KeyType key) const noexcept;
-
-        /**
-        * @brief Sentinel index meaning “not a member”.
-        *
-        * Equals N. This is the value written into empty slots in the flat table.
-        */
-        [[nodiscard]] static constexpr std::size_t not_found() noexcept;
-       
-        /**
-        * @brief Number of keys (size of the perfect set).
-        */
-        [[nodiscard]] static constexpr std::size_t size() noexcept;
-        
-        /**
-        * @brief First-level bucket count (power of two).
-        */
-        [[nodiscard]] static constexpr std::size_t bucket_count() noexcept;
-
-    private:
-        /**
-        * @brief Per-bucket odd multipliers a_b used in multiply–shift at level 2.
-        *
-        * For each bucket b, the generator finds an odd a_b so that the top r_b bits
-        * of (mix_native(key) * a_b) are collision-free for that bucket’s keys.
-        */
-        std::array<std::size_t, BucketCount> _local_multiplier{};
-        
-        /**
-        * @brief Per-bucket bit widths r_b; the bucket’s second-level table size is 1 << r_b.
-        *
-        * FKS sets r_b ≈ ceil_log2(s_b^2) for bucket size s_b > 1 and r_b = 0 for s_b = 0,
-        * r_b = 0 or 1 for s_b = 1 (depending on your policy). This ensures room to find
-        * a collision-free a_b quickly.
-        */
-        std::array<std::uint8_t, BucketCount> _local_bits{};    
-
-        /**
-        * @brief Base offsets into the flattened slots array for each bucket.
-        *
-        * The slice [_base_offset[b], _base_offset[b] + (1 << _local_bits[b])) holds the
-        * second-level slots for bucket b.
-        */
-        std::array<std::size_t,  BucketCount> _base_offset{};  // start in slots[]
-        
-        /**
-        * @brief Flattened second-level table storing final indices or the sentinel.
-        *
-        * If a slot is unoccupied, it holds not_found() (which equals N).
-        * Otherwise it stores an index into [0..N-1].
-        */
-        std::array<index_t, TotalSlots> _slot_to_index{};    // [0..N-1] or N
-        
-        /**
-        * @brief Membership array: original keys placed by their final indices.
-        *
-        * This provides the definitive equality check on lookups to reject
-        * occasional false positives from different buckets sharing slot values.
-        */
-        std::array<KeyType, N> _keys_by_index{};
-        
-        /// Defaulted; instances are created by the generator.
-        constexpr fks_table() = default;
-
-        // fks_hash_gen populates internals.
-        template<typename K> friend class fks_hash_gen;
-
-        // Invariants checked at compile time:
-        static_assert(std::is_unsigned<KeyType>::value, "KeyType must be unsigned integral");
-        static_assert(BucketCount && ((BucketCount & (BucketCount - 1)) == 0),
-                  "BucketCount must be power-of-two and > 0");
-    };
-    /**
-    * @brief Compile-time builder for fks_table from a pack of distinct keys.
+    * @tparam KeyType Unsigned integral key type (e.g., `std::uint8_t`, `std::uint16_t`, ...).
     *
-    * Given a parameter pack of unsigned keys, selects a first-level bucket count,
-    * groups keys by bucket (CSR layout), picks second-level sizes r_b, and then
-    * for each bucket searches an odd multiplier a_b so that the per-bucket
-    * multiply–shift hash is collision-free. Produces an fks_table that can be
-    * used at runtime with O(1) lookups and no dynamic allocation.
-    *
-    * @tparam KeyType Unsigned key type (uint8_t..uint64_t)
-    * Usage:
     * ```cpp
-    * using Gen = fks_hash_gen<std::uint16_t>;
-    * constexpr auto T = Gen::generate<10, 42, 7, 99>();
-    * static_assert(T.size() == 4, "N");
-    * static_assert(T(42) == 1, "index of 42");
+    * using F = etools::hashing::fks<std::uint16_t>;
+    * constexpr const auto& H = F::instance<10, 42, 7, 99>();
+    * static_assert(H(42) == 1);
     * ```
     *
-    * Requirements:
-    * - KeyType must be an unsigned integral type.
-    * - Keys in the pack must be pairwise distinct (checked at compile time unless you disable it).
+    * @note The returned reference denotes a per-key-set singleton with static storage.
+    * @warning The facade itself is non-instantiable and non-copyable.
     */
     template <typename KeyType>
-    struct fks_hash_gen {
-        static_assert(std::is_unsigned_v<KeyType>, "KeyType must be an unsigned integral type");
+    class fks {
+    public:
         /**
-        * @brief Build the perfect hash table for the given key pack.
+        * @brief Obtain the canonical lookup instance for a fixed key set.
         *
-        * Keys are assigned indices in pack order (0..N-1). The first-level
-        * bucket count is `M = ceil_pow2(N)`. For each bucket, an odd multiplier
-        * `a_b` is searched until the second-level positions are collision-free.
+        * @tparam Keys Distinct keys; the order defines dense indices `[0..N-1]`.
+        * @return `constexpr const details::fks_impl<KeyType, Keys...>&` to the singleton.
         *
-        * @tparam Keys The key set as NTTPs (must be distinct).
-        * @return A fully-initialized `fks_table`.
+        * ```cpp
+        * constexpr const auto& H = etools::hashing::fks<std::uint16_t>::instance<10,20,30>();
+        * auto i = H(20);                  // 1
+        * bool ok = (i < H.size());        // true if present
+        * ```
         *
-        * @note Non-member lookups return `table.not_found` (which equals N).
+        * @note Every call with the same `<KeyType, Keys...>` returns a reference to the same object.
         */
         template <KeyType... Keys>
-        static constexpr auto generate();
+        [[nodiscard]] static constexpr const details::fks_impl<KeyType, Keys...>& instance() noexcept;
+        
+        /**
+        * @brief Deleted copy constructor.
+        *
+        * @warning The facade is a purely static namespace-like holder.
+        */
+        fks(const fks&) = delete;
+
+        /**
+        * @brief Deleted copy assignment.
+        */
+        fks& operator=(const fks&) = delete;
+
+        /**
+        * @brief Deleted move constructor.
+        */
+        fks(fks&&)  = delete;
+
+        /**
+        * @brief Deleted move assignment.
+        */
+        fks& operator=(fks&&) = delete;
+        
+    private:
+        /**
+        * @brief Private default constructor — facade is not meant to be instantiated.
+        */
+        constexpr fks() noexcept = default;
     };
 } // namespace etools::hashing
 
 #include "fks.tpp"
 #endif // ETOOLS_HASHING_FKS_HPP_
+    

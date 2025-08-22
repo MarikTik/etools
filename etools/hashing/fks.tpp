@@ -6,7 +6,7 @@
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
-* @date 2025-08-19
+* @date 2025-08-20
 *
 * @copyright
 * MIT License
@@ -15,10 +15,11 @@
 */
 #ifndef ETOOLS_HASHING_FKS_TPP_
 #define ETOOLS_HASHING_FKS_TPP_
+
+#include "fks.tpp"
 #include "fks.hpp"
-#include "../meta/utility.hpp"
-namespace etools::hashing{
-        namespace details{
+namespace etools::hashing {
+    namespace details{
         template <typename KeyType, std::size_t N, std::size_t BucketCount>
         constexpr std::array<std::size_t, BucketCount> compute_bucket_counts(
             const std::array<KeyType, N> &keys
@@ -30,7 +31,7 @@ namespace etools::hashing{
             }
             return counts;
         }
-
+        
         template <std::size_t BucketCount>
         constexpr std::array<std::size_t, BucketCount + 1> offsets_from_counts(
             const std::array<std::size_t, BucketCount> &counts
@@ -42,7 +43,7 @@ namespace etools::hashing{
             }
             return off;
         }
-
+        
         template <typename KeyType, std::size_t N, std::size_t BucketCount>
         constexpr std::array<std::size_t, N> items_csr(
             const std::array<KeyType, N> &keys,
@@ -58,7 +59,7 @@ namespace etools::hashing{
             }
             return items;
         }
-
+        
         template <std::size_t BucketCount>
         constexpr std::array<std::uint8_t, BucketCount> compute_rbits(const std::array<std::size_t, BucketCount> &counts) noexcept{
             std::array<std::uint8_t, BucketCount> r{};
@@ -69,7 +70,7 @@ namespace etools::hashing{
             }
             return r;
         }
-
+        
         template <std::size_t BucketCount>
         constexpr std::size_t total_slots_from_rbits(const std::array<std::uint8_t, BucketCount> &r) noexcept{
             std::size_t T = 0;
@@ -78,6 +79,7 @@ namespace etools::hashing{
             }
             return T;
         }
+        
         template <std::size_t BucketCount>
         constexpr std::array<std::size_t, BucketCount> base_from_rbits(const std::array<std::uint8_t, BucketCount> &r) noexcept{
             std::array<std::size_t, BucketCount> base{};
@@ -88,116 +90,135 @@ namespace etools::hashing{
             }
             return base;
         }
-    }
-    template <typename KeyType, std::size_t N, std::size_t BucketCount, std::size_t TotalSlots>
-    constexpr std::size_t fks_table<KeyType, N, BucketCount, TotalSlots>::operator()(KeyType key) const noexcept {
-            const std::size_t mixed  = mix_native(key);
-            const std::size_t b = mixed & (BucketCount - 1);
-            const std::uint8_t r = _local_bits[b];
-            const std::size_t  a = _local_multiplier[b];
-            const std::size_t  base = _base_offset[b];
-            const std::size_t local = top_bits<std::size_t>(mixed * a, r);
-            const std::size_t pos = base + local;
-            const std::size_t idx = static_cast<std::size_t>(_slot_to_index[pos]);
-            if (idx == not_found()) return not_found();
-            return (_keys_by_index[idx] == key) ? idx : not_found();
-    }
 
-    template <typename KeyType, std::size_t N, std::size_t BucketCount, std::size_t TotalSlots>
-    constexpr std::size_t fks_table<KeyType, N, BucketCount, TotalSlots>::not_found() noexcept
-    {
-        return N;
-    }
+        template <typename Key, Key... Keys>
+        constexpr fks_impl<Key, Keys...> make_fks_impl() noexcept{
+            return fks_impl<Key, Keys...>{}; 
+        }
 
-    template <typename KeyType, std::size_t N, std::size_t BucketCount, std::size_t TotalSlots>
-    constexpr std::size_t fks_table<KeyType, N, BucketCount, TotalSlots>::size() noexcept
-    {
-        return N;
-    }
-
-    template <typename KeyType, std::size_t N, std::size_t BucketCount, std::size_t TotalSlots>
-    constexpr std::size_t fks_table<KeyType, N, BucketCount, TotalSlots>::bucket_count() noexcept
-    {
-        return BucketCount;
-    }
-
+        template <typename KeyType, KeyType... Keys>
+        constexpr fks_impl<KeyType, Keys...>::fks_impl() noexcept {
+            // Distinctness check (no static data members => no ODR headaches)
+            #ifndef ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK
+            {
+                constexpr std::array<KeyType, size()> key_set{{ Keys... }};
+                static_assert(meta::all_distinct_fast(key_set), "FKS keys must be distinct");
+            }
+            #endif
+            
+            // 1) Pack and first-level counts
+            constexpr std::array<KeyType, size()> keys{ { Keys... } };
+            constexpr auto counts = compute_bucket_counts<KeyType, size(), buckets()>(keys);
+            constexpr auto offs = offsets_from_counts<buckets()>(counts);
+            
+            // 2) Second-level sizing and layout
+            constexpr auto rbits = compute_rbits<buckets()>(counts);
+            constexpr auto base = base_from_rbits<buckets()>(rbits);
+            
+            // 3) CSR of key indices grouped by bucket
+            constexpr auto items = items_csr<KeyType, size(), buckets()>(keys, offs);
+            
+            // 4) init metadata + membership
+            for (std::size_t b = 0; b < buckets(); ++b) {
+                _local_bits[b] = rbits[b];
+                _base_offset[b] = base[b];
+                _local_multiplier[b] = std::size_t{1}; // set per-bucket below
+            }
+            for (std::size_t i = 0; i < size(); ++i) {
+                _keys_by_index[i] = keys[i];
+            }
+            for (std::size_t i = 0; i < slots(); ++i) {
+                _slot_to_index[i] = static_cast<index_t>(not_found()); // sentinel
+            }
+            
+            // 5) choose per-bucket odd multiplier a_b; place keys
+            std::array<std::size_t, size()> local{};
+            for (std::size_t b = 0; b < buckets(); ++b) {
+                const std::size_t s = counts[b];
+                if (s == 0) { _local_multiplier[b] = std::size_t{1}; continue; }
+                
+                const std::uint8_t r = rbits[b];
+                const std::size_t off = offs[b];
+                const std::size_t b0 = base[b];
+                
+                std::size_t chosen = std::size_t{1};
+                for (std::size_t seed = 1;; ++seed) {
+                    const std::size_t a = (mix_native(seed) | std::size_t{1}); // odd
+                    // candidate local positions
+                    for (std::size_t j = 0; j < s; ++j) {
+                        const std::size_t idx = items[off + j];
+                        const std::size_t m = mix_native(keys[idx]);
+                        local[j] = top_bits<std::size_t>(m * a, r);
+                    }
+                    // check distinct
+                    bool ok = true;
+                    for (std::size_t i = 0; i < s && ok; ++i)
+                    for (std::size_t j = i + 1; j < s; ++j)
+                    if (local[i] == local[j]) { ok = false; break; }
+                    if (ok) { chosen = a; break; }
+                }
+                
+                _local_multiplier[b] = chosen;
+                for (std::size_t j = 0; j < s; ++j) {
+                    const std::size_t idx = items[off + j];           // final dense index
+                    const std::size_t pos = b0 + local[j];            // global slot
+                    _slot_to_index[pos] = static_cast<index_t>(idx);
+                }
+            }
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t fks_impl<KeyType, Keys...>::size() noexcept {
+            return sizeof...(Keys); 
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t fks_impl<KeyType, Keys...>::not_found() noexcept {
+            return size(); 
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t fks_impl<KeyType, Keys...>::buckets() noexcept{
+            return ceil_pow2<std::size_t>(size() ? size() : 1);
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t fks_impl<KeyType, Keys...>::slots() noexcept {
+            constexpr std::array<KeyType, size()> keys{ { Keys... } };
+            constexpr auto counts = compute_bucket_counts<KeyType, size(), buckets()>(keys);
+            constexpr auto rbits = compute_rbits<buckets()>(counts);
+            return total_slots_from_rbits<buckets()>(rbits);
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t
+        fks_impl<KeyType, Keys...>::local_pos(std::size_t b, KeyType key) const noexcept {
+            const std::size_t r = _local_bits[b];
+            const std::size_t a = _local_multiplier[b];
+            const std::size_t mixed = mix_native<std::size_t>(static_cast<std::size_t>(key));
+            return top_bits<std::size_t>(mixed * a, r);
+        }
+        
+        template <typename KeyType, KeyType... Keys>
+        constexpr std::size_t
+        fks_impl<KeyType, Keys...>::operator()(KeyType key) const noexcept {
+            const std::size_t mixed  = mix_native<std::size_t>(static_cast<std::size_t>(key));
+            const std::size_t b = mixed & (buckets() - 1);
+            const std::size_t base = _base_offset[b];
+            const std::size_t pos = base + local_pos(b, key);
+            const index_t v = _slot_to_index[pos];
+            if (v == static_cast<index_t>(size())) return size();   // empty slot
+            const std::size_t i = static_cast<std::size_t>(v);
+            return (_keys_by_index[i] == key) ? i : size();         // membership guard
+        }
+        
+    } // namespace details;
+    
     template <typename KeyType>
     template <KeyType... Keys>
-    constexpr auto fks_hash_gen<KeyType>::generate(){
-        using namespace details;
-        constexpr std::size_t N = sizeof...(Keys);
-        static_assert(N > 0, "At least one key is required");
-        // Keys in pack order (final indices will be 0..N-1)
-        constexpr std::array<KeyType, N> keys{ { Keys... } };
-        // Ensure distinct keys
-        static_assert(meta::all_distinct_fast(keys), "Keys must be distinct");
-        // 1) First-level: bucketization (power-of-two bucket count)
-        constexpr std::size_t M = ceil_pow2<std::size_t>(N);  // >= 1
-        static_assert(M && ((M & (M - 1)) == 0), "BucketCount must be power-of-two");
-        constexpr auto counts = compute_bucket_counts<KeyType, N, M>(keys);
-        constexpr auto offs   = offsets_from_counts<M>(counts);
-        constexpr auto items  = items_csr<KeyType, N, M>(keys, offs);
-        // 2) Second-level sizes and layout
-        constexpr auto rbits  = compute_rbits<M>(counts);
-        constexpr std::size_t total = total_slots_from_rbits<M>(rbits);
-        constexpr auto base    = base_from_rbits<M>(rbits);
-        // 3) Final table type (all params are constant-expr)
-        using table_t = fks_table<KeyType, N, M, total>;
-        table_t table{};
-        // Copy metadata (loop; whole-array assignment isn't constexpr in C++17)
-        for (std::size_t b = 0; b < M; ++b) {
-            table._local_bits[b]      = rbits[b];
-            table._base_offset[b]     = base[b];
-            table._local_multiplier[b]= std::size_t{1}; // set later
-        }
-        // Initialize slots to sentinel N
-        for (std::size_t i = 0; i < total; ++i) {
-            table._slot_to_index[i] = static_cast<typename table_t::index_t>(N);
-        }
-        // Membership array: original key at its final index (pack order)
-        for (std::size_t i = 0; i < N; ++i) {
-            table._keys_by_index[i] = keys[i];
-        }
-        // Scratch for per-bucket local positions (size N is sufficient)
-        std::array<std::size_t, N> local_pos{};
-        // 4) For each bucket, find an odd multiplier 'a' with collision-free local positions
-        for (std::size_t b = 0; b < M; ++b) {
-            const std::size_t s = counts[b];
-            if (s == 0) {
-                table._local_multiplier[b] = std::size_t{1};
-                continue;
-            }
-            const std::uint8_t r   = rbits[b];
-            const std::size_t  base_pos = base[b];
-            const std::size_t  start = offs[b];
-            std::size_t chosen = std::size_t{1};
-            for (std::size_t seed = 1;; ++seed) {
-                const std::size_t a = (mix_native(seed) | std::size_t{1}); // odd
-                // Compute candidate local positions for this bucket
-                for (std::size_t j = 0; j < s; ++j) {
-                    const std::size_t key_index = items[start + j];
-                    const std::size_t mixed = mix_native(keys[key_index]);
-                    local_pos[j] = top_bits<std::size_t>(mixed * a, r);
-                }
-                // Check for duplicates (O(s^2); s is tiny on average)
-                bool ok = true;
-                for (std::size_t i = 0; i < s && ok; ++i) {
-                    for (std::size_t j = i + 1; j < s; ++j) {
-                        if (local_pos[i] == local_pos[j]) { ok = false; break; }
-                    }
-                }
-                if (ok) { chosen = a; break; }
-            }
-            table._local_multiplier[b] = chosen;
-            // Commit the keys into the global slots (index = pack order)
-            for (std::size_t j = 0; j < s; ++j) {
-                const std::size_t key_index = items[start + j];        // 0..N-1
-                const std::size_t pos = base_pos + local_pos[j];
-                table._slot_to_index[pos] =
-                    static_cast<typename table_t::index_t>(key_index);
-            }
-        }
-        return table; // NRVO; usable in constexpr
+    constexpr const details::fks_impl<KeyType, Keys...>& fks<KeyType>::instance() noexcept {
+        return details::fks_impl_singleton<KeyType, Keys...>;
     }
-}
+} // namespace etools::hashing
+
 #endif // ETOOLS_HASHING_FKS_TPP_
