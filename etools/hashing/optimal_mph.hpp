@@ -80,7 +80,7 @@
 */
 #ifndef ETOOLS_HASHING_OPTIMAL_MPH_HPP_
 #define ETOOLS_HASHING_OPTIMAL_MPH_HPP_
-#include <cstdint>
+#include <cstddef>
 
 namespace etools::hashing{
 
@@ -95,7 +95,18 @@ namespace etools::hashing{
     *       - LLUT memory ~ K * sizeof(index_t)          (K = max_key+1)
     *       - FKS memory ~ N * (α*index_t + 2*size_t + 1 + sizeof(KeyType))
     *       If LLUT’s cost exceeds FKS’s, we choose FKS; otherwise LLUT.
+    * 
+    * Usage:
+    * ```cpp
+    * using Opt = etools::hashing::optimal_mph<std::uint16_t>;
     *
+    * // Dense-ish set: likely LLUT
+    * constexpr const auto& A = Opt::instance<2,5,7,8,9>();
+    * static_assert(A.size() == 5);
+    * static_assert(A(7) == 2);
+    * static_assert(A(999) == A.not_found());
+    * ```
+    * 
     * @warning `instance<...>()` returns a `constexpr const&` to the chosen backend’s
     *          canonical singleton. The *type* of the returned object depends on the
     *          key pack and may be either `llut_impl<...>` or `fks_impl<...>`.
