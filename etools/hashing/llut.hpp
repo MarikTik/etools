@@ -206,10 +206,7 @@ namespace etools::hashing {
         * @return A value-initialized `llut_impl<Key, Keys...>`.
         */
         template <typename Key, Key... Keys>
-        [[nodiscard]] constexpr llut_impl<Key, Keys...> make_llut_impl() noexcept
-        {
-            return llut_impl<Key, Keys...>{};
-        }
+        [[nodiscard]] constexpr llut_impl<Key, Keys...> make_llut_impl() noexcept;
         
         /**
         * @brief Canonical singleton: one `inline constexpr` instance per `<Key, Keys...>` in the program.
@@ -220,9 +217,8 @@ namespace etools::hashing {
         */
         template <typename Key, Key... Keys>
         inline constexpr auto llut_impl_singleton = make_llut_impl<Key, Keys...>();
-    
+        
     } // namespace details
-
 
     /**
     * @class llut

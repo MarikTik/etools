@@ -62,8 +62,13 @@ namespace etools::hashing{
             return table;
         }
 
-    }
+        template <typename Key, Key... Keys>
+        constexpr llut_impl<Key, Keys...> make_llut_impl() noexcept
+        {
+            return llut_impl<Key, Keys...>{};
+        }
 
+    }
     template<typename KeyType>
     template<KeyType... Keys>
     constexpr const details::llut_impl<KeyType, Keys...>& llut<KeyType>::instance() noexcept
