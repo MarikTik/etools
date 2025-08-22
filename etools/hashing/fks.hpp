@@ -406,8 +406,7 @@ namespace etools::hashing {
     * @warning The facade itself is non-instantiable and non-copyable.
     */
     template <typename KeyType>
-    class fks {
-    public:
+    struct fks {
         /**
         * @brief Obtain the canonical lookup instance for a fixed key set.
         *
@@ -425,6 +424,11 @@ namespace etools::hashing {
         template <KeyType... Keys>
         [[nodiscard]] static constexpr const details::fks_impl<KeyType, Keys...>& instance() noexcept;
         
+        /**
+        * @brief Deleted default constructor — this facade is not meant to be instantiated.
+        */
+        fks() = delete;
+
         /**
         * @brief Deleted copy constructor.
         *
@@ -446,12 +450,6 @@ namespace etools::hashing {
         * @brief Deleted move assignment.
         */
         fks& operator=(fks&&) = delete;
-        
-    private:
-        /**
-        * @brief Private default constructor — facade is not meant to be instantiated.
-        */
-        constexpr fks() noexcept = default;
     };
 } // namespace etools::hashing
 

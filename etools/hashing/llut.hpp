@@ -229,8 +229,7 @@ namespace etools::hashing {
     * @tparam KeyType Unsigned integral key type..
     */
     template<typename KeyType>
-    class llut{
-    public:
+    struct llut{
         /**
         * @brief Obtain the canonical table for a fixed key set.
         *
@@ -240,20 +239,30 @@ namespace etools::hashing {
         template<KeyType... Keys>
         [[nodiscard]] static constexpr const details::llut_impl<KeyType, Keys...>& instance() noexcept;
 
-        /** @brief Deleted copy constructor. */
-        llut(const llut&) = delete;
-        /** @brief Deleted copy assignment.  */
-        llut& operator=(const llut&) = delete;
-        /** @brief Deleted move constructor. */
-        llut(llut&&) = delete;
-        /** @brief Deleted move assignment.  */
-        llut& operator=(llut&&) = delete;
-    private:
-        /** 
-        * @brief Private default constructor; facade is not meant to be instantiated. 
-        * 
+        /**
+        * @brief Deleted default constructor — this facade is not meant to be instantiated.
         */
-        constexpr llut() noexcept = default;
+        llut() = delete;
+
+        /**
+        * @brief Deleted copy constructor.
+        */
+        llut(const llut&) = delete;
+
+        /**
+        * @brief Deleted copy assignment.
+        */
+        llut& operator=(const llut&) = delete;
+        
+        /**
+        * @brief Deleted move constructor.
+        */
+        llut(llut&&) = delete;
+
+        /**
+        * @brief Deleted move assignment.
+        */
+        llut& operator=(llut&&) = delete;
     };
 
 } // namespace etools::hashing
