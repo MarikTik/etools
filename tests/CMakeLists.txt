@@ -10,7 +10,19 @@ set(NDEBUG_TEST_SOURCES
     memory/test_envelope.cpp
     memory/test_envelope_view.cpp
 )
+ 
+set(GNU_OPTIONS
+    -fconstexpr-ops-limit=2147483647     # 2^28; raise if needed
+    -fconstexpr-loop-limit=2147483647   # effectively "no limit" on loop iterations
+)
 
+set(CLANG_OPTIONS
+    -fconstexpr-steps=2147483647
+)
+
+set(MSVC_OPTIONS
+    /constexpr:depth2147483647
+)
 foreach(test_src ${TEST_SOURCES})
     # Extract the base name of the test file (e.g., "test_envelope")
     get_filename_component(test_name ${test_src} NAME_WE)
@@ -20,8 +32,19 @@ foreach(test_src ${TEST_SOURCES})
 
     add_executable(${test_name} ${test_src})
     target_link_libraries(${test_name} PRIVATE etools GTest::gtest_main)
-  
-    # Check if the current test file's relative path is in the list of NDEBUG sources.
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # GCC
+        target_compile_options(${test_name} PRIVATE ${GNU_OPTIONS})
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        # Clang/AppleClang
+        target_compile_options(${test_name} PRIVATE ${CLANG_OPTIONS})
+
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        # MSVC
+        target_compile_options(${test_name} PRIVATE ${MSVC_OPTIONS})
+    endif()
+    
     list(FIND NDEBUG_TEST_SOURCES ${test_src_rel} index)
     if(index GREATER_EQUAL 0)
         message(STATUS "Compiling test '${test_name}' with assertions disabled (NDEBUG).")
