@@ -4,6 +4,8 @@
 *
 * @brief Perfect hashing over a fixed key set (FKS): two-level structure with O(1) lookups.
 *
+* @ingroup etools_hashing etools::hashing
+*
 * @details
 * This header provides a header-only, compile-time generator for a two-level
 * Fredman–Komlós–Szemerédi (FKS) perfect hash structure. Given a fixed set of

@@ -17,4 +17,6 @@
 #define ETOOLS_HASHING_HASHING_HPP_
 #include "utils.hpp"
 #include "fks.hpp"
+#include "llut.hpp"
+#include "optimal_mph.hpp"
 #endif // ETOOLS_HASHING_HASHING_HPP_

@@ -2,6 +2,8 @@
 /**
 * @file utils.hpp
 *
+* @ingroup etools_hashing etools::hashing
+*
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2025-08-17

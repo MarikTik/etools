@@ -5,6 +5,8 @@
 * @brief Minimal Perfect Hash (MPH) selector: choose the most memory-efficient
 *        backend (LLUT or FKS) at compile time and return its singleton.
 *
+* @ingroup etools_hashing etools::hashing
+*
 * @details
 * This header provides a facade that selects an implementation of a
 * **Minimal Perfect Hash Function (MPHF)** for a fixed key set.
@@ -141,7 +143,7 @@ namespace etools::hashing{
         */
         optimal_mph& operator=(optimal_mph&&) = delete;
     };
-    
+
 } // namespace etools::hashing
 
 #include "optimal_mph.tpp"
