@@ -46,6 +46,7 @@ namespace etools::memory {
     template <typename... Args>
     inline T *slot<T>::construct(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>)
     {
+        static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
         assert(not _constructed && "Slot already constructed, cannot construct again.");
         return emplace(std::forward<Args>(args)...);
     }
@@ -53,6 +54,7 @@ namespace etools::memory {
     template <typename T>
     template <typename... Args>
     inline T *slot<T>::emplace(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>){
+        static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
         if (_constructed) destroy();
         _constructed = true;
         return new (&_mem) T(std::forward<Args>(args)...);
