@@ -24,13 +24,20 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
- 
+
 #ifndef ETOOLS_META_TRAITS_HPP_
 #define ETOOLS_META_TRAITS_HPP_
 #include <type_traits> // For std::true_type, std::bool_constant, std::is_same_v
 #include <limits> // For std::numeric_limits
 #include <cstdint> // For std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t
 #include <cstddef> // For size_t
+#include <utility> // For a bunch of stuff
+
+ 
+#ifndef __has_builtin
+    #define __has_builtin(x) 0
+#endif
+
 namespace etools::meta {
     
     /**
@@ -319,150 +326,197 @@ namespace etools::meta {
     using member_t = typename member<Extractor, Ts...>::type;
     
     
-    namespace __details{
+    #if ETOOLS_HAS_TYPE_PACK_ELEMENT
         /**
-        * @brief Primary template for the recursive `nth` implementation.
-        * @tparam N The index to retrieve.
+        * @brief Fast pack indexing using compiler builtin when available.
+        *
+        * @tparam I  Zero-based index into the parameter pack.
         * @tparam Ts The parameter pack of types.
+        *
+        * @note Ill-formed if `I >= sizeof...(Ts)` (as with standard aliases).
         */
-        template<size_t N, typename... Ts>
-        struct nth_impl;
+        template <std::size_t I, class... Ts>
+        using pack_at_t = __type_pack_element<I, Ts...>;
+    #else
+        namespace details {
+            /**
+            * @brief MI node carrying an index and a type.
+            *
+            * @tparam I Index tag.
+            * @tparam T Type stored at index I.
+            */
+            template<std::size_t I, class T>
+            struct indexed { using type = T; };
 
+            /**
+            * @brief Builds a single base class that inherits from `indexed<I, Ts>`...
+            *        for all `I` and `Ts...` in the pack.
+            */
+            template<class Seq, class... Ts>
+            struct indexer_impl;
+
+            template<std::size_t... Is, class... Ts>
+            struct indexer_impl<std::index_sequence<Is...>, Ts...> : indexed<Is, Ts>... {};
+
+            /**
+            * @brief Overload helper that selects the `indexed<I, T>` base.
+            */
+            template<std::size_t I, class T>
+            indexed<I, T> pick(const indexed<I, T>&);
+
+            /**
+            * @brief Amortized O(N) “view” over a parameter pack, providing O(1) lookups.
+            *
+            * @tparam Ts Types in the pack.
+            */
+            template<class... Ts>
+            struct type_pack_view {
+                using indexer = indexer_impl<std::make_index_sequence<sizeof...(Ts)>, Ts...>;
+                template<std::size_t I>
+                using at = typename decltype(pick<I>(std::declval<indexer>()))::type;
+            };
+
+            /**
+            * @brief Fast pack indexing using the MI fallback (portable).
+            *
+            * @tparam I  Zero-based index into the parameter pack.
+            * @tparam Ts The parameter pack of types.
+            *
+            * @note Ill-formed if `I >= sizeof...(Ts)` (as with standard aliases).
+            */
+            template <std::size_t I, class... Ts>
+            using pack_at_t = typename type_pack_view<Ts...>::template at<I>;
+        } // namespace details
+        #endif // ETOOLS_HAS_TYPE_PACK_ELEMENT
+
+        namespace details{
+            /**
+            * @brief Implementation detail for `nth`: resolves to the N-th type.
+            *
+            * This thin wrapper delegates to a fast compiler builtin (`__type_pack_element`)
+            * when available, otherwise to a portable multiple-inheritance fallback.
+            *
+            * @tparam N  Zero-based index to retrieve.
+            * @tparam Ts Parameter pack of types.
+            */
+            template<std::size_t N, typename... Ts>
+            struct nth_impl {
+                using type = pack_at_t<N, Ts...>;
+            };
+        } // namespace details
+        
         /**
-        * @brief Base case specialization for `nth_impl` when the index N reaches 0.
-        * @tparam Head The type at the current index.
-        * @tparam Tail The rest of the types in the pack.
+        * @struct nth
+        * @brief Retrieves the N-th type from a parameter pack at compile time.
+        *
+        * Provides `::type` equal to the type at index `N` in `Ts...`.
+        *
+        * @tparam N  Zero-based index.
+        * @tparam Ts Parameter pack of types.
+        *
+        * @note Performs a friendly bounds check with `static_assert`. Under the hood,
+        *       this uses a compiler builtin when present, otherwise a MI fallback.
+        *
+        * @see nth_t
+        * ```cpp
+        * using my_type = etools::meta::nth<1, int, double, float>::type; // double
+        * ```
         */
-        template<typename Head, typename... Tail>
-        struct nth_impl<0, Head, Tail...> {
-            using type = Head;
+        template<std::size_t N, typename... Ts>
+        struct nth {
+            static_assert(N < sizeof...(Ts), "Index out of bounds");
+            using type = typename details::nth_impl<N, Ts...>::type;
         };
-
+        
         /**
-        * @brief Recursive specialization for `nth_impl`.
-        * @tparam N The current index, which is decremented in each step.
-        * @tparam Head The type to discard in this step.
-        * @tparam Tail The rest of the types in the pack.
+        * @brief Convenience alias for `nth<N, Ts...>::type`.
+        *
+        * @tparam N  Zero-based index.
+        * @tparam Ts Parameter pack of types.
+        *
+        * @code
+        * using my_type = etools::meta::nth_t<1, int, double, float>; // double
+        * @endcode
         */
-        template<size_t N, typename Head, typename... Tail>
-        struct nth_impl<N, Head, Tail...> : nth_impl<N - 1, Tail...> {};
-    }
-
-    /**
-    * @struct nth
-    * @brief Retrieves the N-th type from a parameter pack at compile-time.
-    *
-    * This trait provides a nested `type` alias that resolves to the type at the
-    * specified zero-based index `N` within the parameter pack `Ts`.
-    *
-    * @tparam N The zero-based index of the type to retrieve.
-    * @tparam Ts The parameter pack of types.
-    *
-    * @note A `static_assert` is used to provide a clear compile-time error if the
-    * index `N` is out of bounds (i.e., greater than or equal to the size of the pack).
-    *
-    * @see nth_t
-    * @code
-    * using my_type = etools::meta::nth<1, int, double, float>::type; // my_type is double
-    * @endcode
-    */
-    template<size_t N, typename... Ts>
-    struct nth {
-        static_assert(N < sizeof...(Ts), "Index out of bounds");
-        using type = typename __details::nth_impl<N, Ts...>::type;
-    };
-    
-    /**
-    * @brief Convenience alias for `nth<N, Ts...>::type`.
-    *
-    * Provides a simpler way to access the N-th type from a pack without
-    * needing to use `typename` or `::type`.
-    *
-    * @tparam N The zero-based index.
-    * @tparam Ts The parameter pack of types.
-    *
-    * @code
-    * using my_type = etools::meta::nth_t<1, int, double, float>; // my_type is double
-    * @endcode
-    */
-    template<size_t N, typename... Ts>
-    using nth_t = typename nth<N, Ts...>::type;
-    
-    /**
-    * @brief Type trait that resolves to the smallest unsigned integer type
-    *        capable of holding a given constant value.
-    *
-    * This trait selects the smallest type among std::uint8_t, std::uint16_t,
-    * std::uint32_t, and std::uint64_t that can represent the given value `V`.
-    *
-    * @tparam V The constant unsigned value to evaluate.
-    *
-    * @note This trait fails to compile if V exceeds the range of std::uint64_t.
-    *
-    * @example
-    * ```
-    * smallest_uint_t<100>       // resolves to std::uint8_t
-    * smallest_uint_t<70000>     // resolves to std::uint32_t
-    * ```
-    */
-    template <std::uintmax_t V>
-    using smallest_uint_t =
+        template<std::size_t N, typename... Ts>
+        using nth_t = typename nth<N, Ts...>::type;
+        
+        /**
+        * @brief Type trait that resolves to the smallest unsigned integer type
+        *        capable of holding a given constant value.
+        *
+        * This trait selects the smallest type among std::uint8_t, std::uint16_t,
+        * std::uint32_t, and std::uint64_t that can represent the given value `V`.
+        *
+        * @tparam V The constant unsigned value to evaluate.
+        *
+        * @note This trait fails to compile if V exceeds the range of std::uint64_t.
+        *
+        * @example
+        * ```
+        * smallest_uint_t<100>       // resolves to std::uint8_t
+        * smallest_uint_t<70000>     // resolves to std::uint32_t
+        * ```
+        */
+        template <std::uintmax_t V>
+        using smallest_uint_t =
         std::conditional_t<(V <= std::numeric_limits<std::uint8_t>::max()),  std::uint8_t,
-            std::conditional_t<(V <= std::numeric_limits<std::uint16_t>::max()), std::uint16_t,
-                std::conditional_t<(V <= std::numeric_limits<std::uint32_t>::max()), std::uint32_t,
-                    std::conditional_t<(V <= std::numeric_limits<std::uint64_t>::max()), std::uint64_t,
-                        void
-                    >
-                >
-            >
+        std::conditional_t<(V <= std::numeric_limits<std::uint16_t>::max()), std::uint16_t,
+        std::conditional_t<(V <= std::numeric_limits<std::uint32_t>::max()), std::uint32_t,
+        std::conditional_t<(V <= std::numeric_limits<std::uint64_t>::max()), std::uint64_t,
+        void
+        >
+        >
+        >
         >;
-
-    /**
-    * @brief Adds const qualifier to a type if the condition is true.
-    * 
-    * @tparam T The type to potentially add const to.
-    * @tparam Condition If true, adds const to T.
-    *
-    * @note If the type already has a `const` qualifier, it will remain unchanged regardless of the condition.
-    * 
-    * Example:
-    * ```cpp
-    * using const_int = add_const_if_t<int, true>;  // const int
-    * using non_const_int = add_const_if_t<int, false>; // int
-    * ```
-    */
-    template<typename T, bool Condition>
-    struct add_const_if{
-        using type = T;
-    };
-
-    /**
-    * @brief Specialization of `add_const_if` for when the condition is true.
-    * Adds const to the type.
-    */
-    template<typename T>
-    struct add_const_if<T, true>{
-        using type = const T;
-    };
-
-    /**
-    * @brief Alias template for `add_const_if`.
-    * 
-    * Provides a convenient way to use `add_const_if` without needing to specify `::type`.
-    * @tparam T The type to potentially add const to.
-    * @tparam Condition If true, adds const to T.
-    * 
-    * @note If the type already has a `const` qualifier, it will remain unchanged regardless of the condition.
-    * 
-    * Example:
-    * ```cpp
-    * using const_int = add_const_if_t<int, true>;  // const int
-    * using non_const_int = add_const_if_t<int, false>; // int
-    * ```
-    */
-    template<typename T, bool Condition>
-    using add_const_if_t = typename add_const_if<T, Condition>::type;
+        
+        /**
+        * @brief Adds const qualifier to a type if the condition is true.
+        * 
+        * @tparam T The type to potentially add const to.
+        * @tparam Condition If true, adds const to T.
+        *
+        * @note If the type already has a `const` qualifier, it will remain unchanged regardless of the condition.
+        * 
+        * Example:
+        * ```cpp
+        * using const_int = add_const_if_t<int, true>;  // const int
+        * using non_const_int = add_const_if_t<int, false>; // int
+        * ```
+        */
+        template<typename T, bool Condition>
+        struct add_const_if{
+            using type = T;
+        };
+        
+        /**
+        * @brief Specialization of `add_const_if` for when the condition is true.
+        * Adds const to the type.
+        */
+        template<typename T>
+        struct add_const_if<T, true>{
+            using type = const T;
+        };
+        
+        /**
+        * @brief Alias template for `add_const_if`.
+        * 
+        * Provides a convenient way to use `add_const_if` without needing to specify `::type`.
+        * @tparam T The type to potentially add const to.
+        * @tparam Condition If true, adds const to T.
+        * 
+        * @note If the type already has a `const` qualifier, it will remain unchanged regardless of the condition.
+        * 
+        * Example:
+        * ```cpp
+        * using const_int = add_const_if_t<int, true>;  // const int
+        * using non_const_int = add_const_if_t<int, false>; // int
+        * ```
+        */
+        template<typename T, bool Condition>
+        using add_const_if_t = typename add_const_if<T, Condition>::type;
+        
+    } // namespace etools::meta
     
-} // namespace etools::meta
-
-#endif // ETOOLS_META_TRAITS_HPP_
+    #endif // ETOOLS_META_TRAITS_HPP_
+    
