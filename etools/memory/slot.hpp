@@ -166,6 +166,30 @@ namespace etools::memory {
         */
         bool _constructed = false;
     };
+
+
+    /**
+    * @name Reference-type poison pills
+    * @brief Explicitly disable `slot<U&>` and `slot<U&&>` with a clear diagnostic.
+    * @{
+    */
+
+    /// @cond etools_internal
+    template<typename U>
+    class slot<U&> {
+        static_assert(!std::is_same_v<U, U>,
+            "etools::memory::slot<T&> is disabled. "
+            "Use `slot<std::remove_reference_t<T>>` to own an object, or `std::reference_wrapper<T>` to bind.");
+    };
+
+    template<typename U>
+    class slot<U&&> {
+        static_assert(!std::is_same_v<U, U>,
+            "etools::memory::slot<T&&> is disabled. "
+            "Use `slot<std::remove_reference_t<T>>` to own an object, or `std::reference_wrapper<T>` to bind.");
+    };
+    /// @endcond
+    /** @} */
 } // namespace etools::memory
 
 #include "slot.tpp"
