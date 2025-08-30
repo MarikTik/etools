@@ -235,7 +235,7 @@ namespace etools::factories{
             template<typename... Args, std::size_t... Is>
             static Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
 
-            static_assert((not std::is_abstract_v<DerivedTypes> && ...), "T can't be abstract because there is no way to construct it.");
+            static_assert((not std::is_abstract_v<DerivedTypes> && ...), "DerivedType can't be abstract because there is no way to construct it.");
         };
     }
 
