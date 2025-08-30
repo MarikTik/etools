@@ -17,5 +17,5 @@
 #define ETOOLS_ETOOLS_HPP_
 #include "meta/meta.hpp"
 #include "memory/memory.hpp"
-#include "facilities/facilities.hpp"
+#include "factories/factories.hpp"
 #endif //ETOOLS_ETOOLS_HPP_

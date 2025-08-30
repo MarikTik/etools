@@ -16,7 +16,6 @@
 #ifndef ETOOLS_HASHING_UTILS_TPP_
 #define ETOOLS_HASHING_UTILS_TPP_
 #include "utils.hpp"
-#include "../future_std/utility.hpp"
 #include "../meta/traits.hpp"
 #include <limits>
 #include <type_traits>
