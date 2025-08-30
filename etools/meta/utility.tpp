@@ -18,16 +18,27 @@
 #include "utility.hpp"
 #include "../hashing/utils.hpp"
 #include <type_traits>
+#include "traits.hpp"
 #include <array>
 #include <limits>
 
 namespace etools::meta{
     template <typename T, T First, T... Rest>
     constexpr T tpack_max() noexcept{
-        static_assert(std::is_integral_v<T>, "Value type must be integral");
-        T m = First;
-        ((m = (m < Rest ? Rest : m)), ...);
-        return m;
+        using U = typename std::conditional_t<
+            std::is_enum_v<T>,
+            std::underlying_type<T>,   // note: NOT _t
+            type_identity<T>
+        >::type;
+
+        static_assert(
+            std::is_integral_v<U>,
+            "tpack_max<T,...>: T must be integral or an enum with integral underlying type"
+        );
+
+        U m = static_cast<U>(First);
+        ((m = (m < static_cast<U>(Rest) ? static_cast<U>(Rest) : m)), ...);
+        return static_cast<T>(m);
     }
     
     template <class T, std::size_t N>

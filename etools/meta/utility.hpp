@@ -19,21 +19,22 @@
 
 namespace etools::meta{
     
-    
     /**
-    * @brief Compute the maximum value in a non-empty integer parameter pack.
+    * @brief Compute the maximum value in a non-empty parameter pack of integral
+    *        values or enum values (scoped or unscoped).
     *
-    * Evaluates the maximum of the compile-time values `First, Rest...` using
-    * a simple fold expression. Intended for small integral packs (e.g., T
-    * sets) where the result is needed as a constant, such as sizing a bounded LUT.
+    * Accepts `T` being an integral type or an `enum`/`enum class`. If `T` is an
+    * enum, its `std::underlying_type_t<T>` is used for the comparison and fold.
     *
-    * @tparam T      Unsigned or signed integral type of the values.
+    * @tparam T      Integral or enum type.
     * @tparam First  First (required) value in the pack.
-    * @tparam Rest   Remaining values in the pack.
-    * @return The maximum value among {First, Rest...}.
+    * @tparam Rest   Remaining values.
+    * @return The maximum value among {First, Rest...}, returned as `T`.
     *
-    * @note This is a purely compile-time utility; it does not allocate or
-    *       materialize any storage.
+    * @note Purely compile-time; no storage is materialized.
+    * @note If `T` is an enum, the result is `static_cast<T>(max_underlying)`.
+    *       This allows values that may not correspond to a named enumerator,
+    *       but are representable by the underlying type.
     */
     template <typename T, T First, T... Rest>
     constexpr T tpack_max() noexcept;

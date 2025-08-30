@@ -11,6 +11,8 @@
 #include <etools/meta/utility.hpp>
 using namespace etools::meta;
 
+enum class E8 : std::uint8_t { A = 1, B = 200, C = 7 };
+static_assert(tpack_max<E8, E8::A, E8::B, E8::C>() == E8::B);
 static_assert(tpack_max<int,  1, 5, 2, 10, 7>() == 10, "int pack max");
 static_assert(tpack_max<unsigned, 0u, 255u, 42u>() == 255u, "unsigned pack max");
 static_assert(tpack_max<long long, -5LL, -2LL, -9LL>() == -2LL, "negative pack max");
