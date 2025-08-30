@@ -110,6 +110,17 @@ TEST(TraitsTest, Nth_Positive) {
     EXPECT_TRUE((std::is_same_v<etools::meta::nth<2, int, double, char>::type, char>));
 }
 
+TEST(TraitsTest, Nth_Preserves_Qualifiers){
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<0, int&, double, char>, int&>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<0, int&&, double, char>, int&&>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<2, int&, double, char&>, char&>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, double, char&>, double>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, const double, char&>, const double>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, double*, char&>, double*>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, const double*, char&>, const double*>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, const double&, char>, const double&>));
+    EXPECT_TRUE((std::is_same_v<etools::meta::nth_t<1, int&, const double&&, char&>, const double&&>));
+}
 TEST(TraitsTest, Nth_Negative) {
     // An index out of bounds will cause a static_assert failure.
     // Uncommenting the next line will produce a compile-time error:
