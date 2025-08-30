@@ -26,7 +26,8 @@
 * - For very large registries (1,000+ types with many constructor variations),
 *   compile times may become significant. On non-professional systems this can
 *   impact developer experience. The generated code remains efficient at runtime.
-*
+* - **Compile-time:** Roughly O(N × K), where N is the number of registered types
+*   and K is the number of distinct constructor argument signatures seen.
 * ## Components
 * - `etools::factories::static_factory<Base, Extractor, DerivedTypes...>` – public facade.
 * - `etools::factories::details::static_factory<...>` – internal implementation.
@@ -233,6 +234,8 @@ namespace etools::factories{
             */
             template<typename... Args, std::size_t... Is>
             static Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
+
+            static_assert((not std::is_abstract_v<DerivedTypes> && ...), "T can't be abstract because there is no way to construct it.");
         };
     }
 
