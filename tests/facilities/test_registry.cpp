@@ -5,7 +5,7 @@
 #include <numeric>
 
  
-#include <etools/facilities/registry.hpp>
+#include <etools/factories/registry.hpp>
 #include <etools/memory/slot.hpp>
 // The base class for our commands
 class Command {
