@@ -7,32 +7,99 @@
 * @details
 * This header provides a zero-allocation, header-only facility to construct one of
 * several `DerivedTypes...` by a `key` extracted from each derived type via an `Extractor<T>`.
-* The mapping from keys to dense indices is resolved at compile time through
+* The mapping from keys to dense indices is resolved entirely at compile time through
 * `etools::hashing::optimal_mph`, yielding O(1) runtime dispatch with no dynamic memory.
 *
-* Components:
+* ## Core Concepts
+* - Each `Derived` type must expose a unique, constant expression key
+*   (`static constexpr key_t key`).
+* - An `Extractor<T>` metafunction supplies the key for compile-time hashing.
+* - At runtime, `emplace(key, args...)` dispatches to the correct derived type slot.
+* - Constructor arguments are *perfect-forwarded* and checked at **compile time**
+*   against each candidate `Derived`.  
+*   This means: if `D` is not constructible from `(Args&&...)`, its branch
+*   compiles down to a no-op and does not participate. Only types with matching
+*   constructors can be instantiated for a given argument list.
+*
+* ## Compile-time Considerations
+* - Dispatch is implemented via a fold expression across all registered types.
+* - For very large registries (1,000+ types with many constructor variations),
+*   compile times may become significant. On non-professional systems this can
+*   impact developer experience. The generated code remains efficient at runtime.
+*
+* ## Components
 * - `etools::factories::static_factory<Base, Extractor, DerivedTypes...>` – public facade.
-* - `etools::factories::details::static_factory<...>` – implementation (not part of API).
+* - `etools::factories::details::static_factory<...>` – internal implementation.
 *
-* Example:
+* ## Example
 * @code
-* struct Base { virtual ~Base() = default; };
-* struct A : Base { static constexpr std::uint16_t key = 2; };
-* struct B : Base { static constexpr std::uint16_t key = 5; };
-* struct C : Base { static constexpr std::uint16_t key = 7; };
+* #include <etools/factories/static_factory.hpp>
+* #include <etools/meta/typelist.hpp>
 *
-* template<class T> struct key_extractor { static constexpr auto value = T::key; };
+* struct Base {
+*   virtual ~Base() = default;
+*   virtual const char* tag() const noexcept = 0;
+* };
+*
+* struct A : Base {
+*   static constexpr std::uint16_t key = 2;
+*   int x{};
+*   A() = default;
+*   const char* tag() const noexcept override { return "A"; }
+* };
+*
+* struct B : Base {
+*   static constexpr std::uint16_t key = 5;
+*   int v{};
+*   explicit B(int vv) : v(vv) {}
+*   const char* tag() const noexcept override { return "B"; }
+* };
+*
+* struct C : Base {
+*   static constexpr std::uint16_t key = 7;
+*   std::string s;
+*   C(const std::string& ss) : s(ss) {}
+*   C(std::string&& ss) noexcept : s(std::move(ss)) {}
+*   const char* tag() const noexcept override { return "C"; }
+* };
+*
+* template<class T>
+* struct key_extractor {
+*   static constexpr auto value = T::key;
+* };
 *
 * using factory = etools::factories::static_factory<
-*     Base, key_extractor, etools::meta::typelist<A,B,C>
+*   Base,
+*   key_extractor,
+*   etools::meta::typelist<A, B, C>
 * >;
 *
-* // Construct the object (B) for key 5 in its preallocated slot
-* Base* p = factory::emplace(5);
+* int main() {
+*   // Default-construct A
+*   Base* pa = factory::emplace(A::key);
 *
+*   // Construct B with an int argument
+*   Base* pb = factory::emplace(B::key, 42);
+*
+*   // Construct C with either copy- or move-constructed string
+*   std::string hello = "hello";
+*   Base* pc1 = factory::emplace(C::key, hello);        // copy ctor
+*   Base* pc2 = factory::emplace(C::key, std::string("hi")); // move ctor
+* }
 * @endcode
 *
-* @author Mark Tikhonov <mtik.philosopher@gmail.com>
+* At compile time:
+* - `factory::emplace(B::key, 42)` is accepted because `B` is constructible from `int`.
+* - If you attempted `factory::emplace(B::key, std::string("oops"))`, that overload
+*   would compile to a no-op and return `nullptr` at runtime, because no `Derived`
+*   type is constructible from `(std::string)`.
+*
+* @note This mechanism ensures both type-safety and efficiency: invalid constructor
+*       signatures are eliminated at compile time, while dispatch to the correct
+*       derived type is constant-time at runtime.
+*
+* @author
+* Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2025-08-16
 *
