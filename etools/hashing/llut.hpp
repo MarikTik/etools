@@ -21,9 +21,12 @@
 *
 * #### Design notes
 * - All structure/lookup properties are exposed as `static constexpr` members:
-*   - `keys()`         -> number of keys (also the sentinel value).
-*   - `size()`         -> table length (aka `max(Keys) + 1`).
-*   - `not_found()`    -> sentinel equal to `keys()`.
+*   - `size()`         -> number of keys (also the sentinel value).
+*   - `capacity()`     -> backing-array length (`max(Keys) + 1` for llut).
+*   - `not_found()`    -> sentinel equal to `size()`.
+* - `size()` / `capacity()` / `not_found()` form a contract shared with `fks`, so the
+*   API exposed via `optimal_mph` (which returns a reference of unspecified backend type)
+*   is uniform across backends.
 * - The singleton is defined as a **namespace-scope `inline constexpr` variable template**,
 *   so it has static storage duration and is usable in constant evaluation. Calls to
 *   `llut<Key>::generate<Keys...>()` return a `constexpr const&` to this object.
@@ -38,11 +41,11 @@
 * // Obtain the canonical table for the key-set {2,5,7}.
 * constexpr const auto& table = llut::generate<2,5,7>();
 *
-* static_assert(table::keys() == 3);                 // 3 keys -> indices [0..2], sentinel == 3
-* static_assert(table::size()  == 8);                // max key = 7 => table length = 8
+* static_assert(table.size()     == 3);              // 3 keys -> indices [0..2], sentinel == 3
+* static_assert(table.capacity() == 8);              // max key = 7 => backing array length = 8
 * static_assert(table(2) == 0 && table(5) == 1 && table(7) == 2);
-* static_assert(table(0) == table.not_found());         // absent key -> sentinel
-* static_assert(table(9) == table.not_found());         // out-of-range -> sentinel
+* static_assert(table(0) == table.not_found());      // absent key -> sentinel
+* static_assert(table(9) == table.not_found());      // out-of-range -> sentinel
 * ```
 *
 * @note Name origin: **llut** = *light look-up table*. “Simple look-up table” was... vetoed :)
@@ -98,63 +101,69 @@ namespace etools::hashing {
         *
         * @brief Immutable, constexpr-constructible direct table mapping `Keys...` to indices.
         *
-        * The table length is `size() == max(Keys) + 1`. Each present key maps to its index
-        * in `[0..keys()-1]`, where `keys() == sizeof...(Keys)`. Holes are filled with the sentinel
-        * `not_found()` == `keys()`.
+        * The backing array length is `capacity() == max(Keys) + 1`. Each present key maps
+        * to its index in `[0..size()-1]`, where `size() == sizeof...(Keys)`. Holes are
+        * filled with the sentinel `not_found()` == `size()`.
         *
         * Invariants:
-        * 
+        *
         * - `KeyType` is an unsigned integral type (`std::is_unsigned_v<Key>`).
-        * 
-        * - `keys() > 0`.
-        * 
+        *
+        * - `size() > 0`.
+        *
         * - Keys are pairwise distinct (unless the check is explicitly disabled).
         *
         * @note Lookup: `O(1)`.
-        * 
-        * @warning When `max(Keys...)` is significantly larger then `sizeof...(Keys)` it 
-        * is heavily advised to prefer `fks` generator. 
+        *
+        * @warning When `max(Keys...)` is significantly larger then `sizeof...(Keys)` it
+        * is heavily advised to prefer `fks` generator.
         */
         template<typename KeyType, KeyType... Keys>
         class llut_impl{
 
             /**
             * @typedef index_t
-            *  
-            * @brief Index storage type (smallest unsigned that can represent `[0..keys()]`).
+            *
+            * @brief Index storage type (smallest unsigned that can represent `[0..size()]`).
             */
             using index_t = meta::smallest_uint_t<sizeof...(Keys)>;
         public:
-            
+
             /**
             * @brief Number of keys in the set (also the sentinel value).
             *
+            * Cross-backend contract: matches `fks::size()`. Use this rather than
+            * `capacity()` when iterating dense indices `[0..size())`.
+            *
             * @return Number of keys `N = sizeof...(Keys)`.
             */
-            [[nodiscard]] static constexpr std::size_t keys() noexcept;
-            
+            [[nodiscard]] static constexpr std::size_t size() noexcept;
+
             /**
-            * @brief Sentinel value returned for “not found”.
+            * @brief Sentinel value returned for "not found".
             *
-            * @return `keys()`.
+            * @return `size()`.
             */
             [[nodiscard]] static constexpr std::size_t not_found() noexcept;
 
             /**
-            * @brief Size of the direct-indexed table.
+            * @brief Length of the underlying backing array.
             *
-            * The table must cover every present key indexable by value, hence it spans
-            * `[0..max(Keys)]`, so the size is `max(Keys) + 1`.
+            * For llut, the table must cover every present key indexable by value, hence
+            * it spans `[0..max(Keys)]`, so the capacity is `max(Keys) + 1`. This is the
+            * memory cost of the structure and is independent of `size()`.
             *
-            * @return Table size as `std::size_t`.
+            * Cross-backend contract: matches `fks::capacity()` (total slot count).
+            *
+            * @return Backing-array length as `std::size_t`.
             */
-            [[nodiscard]] static constexpr std::size_t size() noexcept;
+            [[nodiscard]] static constexpr std::size_t capacity() noexcept;
 
             /**
             * @brief Constant-time query: return index for `key`, or `not_found()` if absent/out of range.
             *
             * @param[in] key The key to look up.
-            * @return Undex in `[0..keys()-1]` or `not_found()` if the key is not present or out of range.
+            * @return Index in `[0..size()-1]` or `not_found()` if the key is not present or out of range.
             */
             [[nodiscard]] constexpr std::size_t operator()(KeyType key) const noexcept;
 
@@ -178,12 +187,12 @@ namespace etools::hashing {
             * @brief Construct the backing array in pure `constexpr` fashion.
             *
             * - Initializes all slots to `not_found()`.
-            * 
+            *
             * - Assigns indices in the order of `Keys...` using LTR guaranteed evaluation.
             *
-            * @return Fully populated `std::array<index_t, size()>`.
+            * @return Fully populated `std::array<index_t, capacity()>`.
             */
-            static constexpr std::array<index_t, size()> make_table() noexcept;
+            static constexpr std::array<index_t, capacity()> make_table() noexcept;
 
             /**
             * @brief Friend factory allowed to invoke the private constructor.
@@ -192,12 +201,12 @@ namespace etools::hashing {
             friend constexpr llut_impl<K, Ks...> make_llut_impl() noexcept;
 
             /**
-            * @brief Backing direct-index table (`[0..size()-1]`), filled with dense indices or sentinel.
+            * @brief Backing direct-index table (`[0..capacity()-1]`), filled with dense indices or sentinel.
             */
-            std::array<index_t, size()> _table;
+            std::array<index_t, capacity()> _table;
 
             static_assert(std::is_unsigned_v<KeyType>, "KeyType must be unsigned integral type");
-            static_assert(keys() > 0, "Number of keys must exceed 0");
+            static_assert(size() > 0, "Number of keys must exceed 0");
         };
 
         /**

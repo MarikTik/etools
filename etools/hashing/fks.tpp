@@ -127,7 +127,7 @@ namespace etools::hashing {
             for (std::size_t i = 0; i < size(); ++i) {
                 _keys_by_index[i] = keys[i];
             }
-            for (std::size_t i = 0; i < slots(); ++i) {
+            for (std::size_t i = 0; i < capacity(); ++i) {
                 _slot_to_index[i] = static_cast<index_t>(not_found()); // sentinel
             }
             
@@ -183,7 +183,7 @@ namespace etools::hashing {
         }
         
         template <typename KeyType, KeyType... Keys>
-        constexpr std::size_t fks_impl<KeyType, Keys...>::slots() noexcept {
+        constexpr std::size_t fks_impl<KeyType, Keys...>::capacity() noexcept {
             constexpr std::array<KeyType, size()> keys{ { Keys... } };
             constexpr auto counts = compute_bucket_counts<KeyType, size(), buckets()>(keys);
             constexpr auto rbits = compute_rbits<buckets()>(counts);

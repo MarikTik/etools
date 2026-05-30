@@ -39,8 +39,14 @@
 * **How to use**
 *  - Include this header.
 *  - Call `optimal_mph<Key>::instance<Keys...>()` to get a `constexpr const&`
-*    to the canonical MPHF object. It supports `operator()(key)`, `size()`,
-*    and `not_found()`. (Do not rely on backend-specific members.)
+*    to the canonical MPHF object. The returned object exposes a uniform
+*    cross-backend surface:
+*      - `operator()(key)` — O(1) lookup, returns dense index or `not_found()`.
+*      - `size()`          — number of registered keys (= N).
+*      - `capacity()`      — underlying storage footprint (`max(Keys)+1` for
+*                            LLUT; total second-level slots for FKS).
+*      - `not_found()`     — sentinel value (= `size()`).
+*    (Do not rely on backend-specific members beyond this contract.)
 *
 * **Example**
 * @code

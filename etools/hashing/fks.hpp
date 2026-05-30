@@ -33,7 +33,7 @@
 *   obtain a `constexpr const&` to the canonical, per-key-set singleton.
 * - `etools::hashing::details::fks_impl<Key, Keys...>` — implementation. Immutable,
 *   constexpr-constructible structure that owns the arrays and exposes `operator()`,
-*   `size()`, `not_found()`, `buckets()`, and `slots()`.
+*   `size()`, `capacity()`, `not_found()`, and `buckets()`.
 *
 * **References**
 * - Fredman, Komlós, Szemerédi. “Storing a Sparse Table with O(1) Access Time.”
@@ -217,6 +217,8 @@ namespace etools::hashing {
             /**
             * @brief Number of keys in the perfect set (also used as the sentinel).
             *
+            * Cross-backend contract: matches `llut::size()`.
+            *
             * @return Count of NTTP keys `N`.
             */
             [[nodiscard]] static constexpr std::size_t size() noexcept;
@@ -238,9 +240,12 @@ namespace etools::hashing {
             /**
             * @brief Total slots across all second-level tables.
             *
+            * Cross-backend contract: matches `llut::capacity()` — the underlying storage
+            * footprint of the structure, independent of `size()`.
+            *
             * @return `Σ_b (1 << r_b)` with `r_b` chosen per bucket.
             */
-            [[nodiscard]] static constexpr std::size_t slots() noexcept;
+            [[nodiscard]] static constexpr std::size_t capacity() noexcept;
             
             /**
             * @brief Constant-time lookup.
@@ -316,10 +321,10 @@ namespace etools::hashing {
             /**
             * @brief Flattened second-level table storing final indices or the sentinel.
             *
-            * Size equals `slots()`. Each slot is either an index in `[0..size()-1]`
+            * Size equals `capacity()`. Each slot is either an index in `[0..size()-1]`
             * or `not_found()` (equal to `size()`).
             */
-            std::array<index_t, slots()> _slot_to_index{};    // [0..N-1] or N
+            std::array<index_t, capacity()> _slot_to_index{};    // [0..N-1] or N
 
             /**
             * @brief Membership array: original keys placed by their final indices.
