@@ -11,15 +11,15 @@ using IMPL_U8  = llut_impl<std::uint8_t, 2, 5, 7>;
 
 // ---------------- Compile-time tests (fire at compile step) ----------------
 
-static_assert(IMPL_U8::keys() == 3,                 "keys() must equal number of Keys");
-static_assert(IMPL_U8::not_found() == 3,            "sentinel equals keys()");
-static_assert(IMPL_U8::size() == 8,                 "size() == max_key + 1 (7+1)");
+static_assert(IMPL_U8::size() == 3,                 "size() must equal number of Keys");
+static_assert(IMPL_U8::not_found() == 3,            "sentinel equals size()");
+static_assert(IMPL_U8::capacity() == 8,             "capacity() == max_key + 1 (7+1)");
 
 // Pull the canonical table as a constexpr reference:
 constexpr const auto& Tc = LUT_U8::instance<2,5,7>();
 
-static_assert(Tc.keys() == 3, "keys() == 3");
-static_assert(Tc.size()  == 8, "size() == 8");
+static_assert(Tc.size()     == 3, "size() == 3");
+static_assert(Tc.capacity() == 8, "capacity() == 8");
 
 static_assert(Tc(2) == 0,                 "2 -> 0");
 static_assert(Tc(5) == 1,                 "5 -> 1");
@@ -35,11 +35,11 @@ static_assert(Tc(9) == Tc.not_found(),    "9 out of range");
 
 TEST(llut_runtime, structure_constants) {
     const auto& T = LUT_U8::instance<2,5,7>();
-    EXPECT_EQ(IMPL_U8::keys(), 3u);
+    EXPECT_EQ(IMPL_U8::size(), 3u);
     EXPECT_EQ(IMPL_U8::not_found(), 3u);
-    EXPECT_EQ(IMPL_U8::size(), 8u);
-    EXPECT_EQ(T.keys(), 3u);
-    EXPECT_EQ(T.size(), 8u);
+    EXPECT_EQ(IMPL_U8::capacity(), 8u);
+    EXPECT_EQ(T.size(), 3u);
+    EXPECT_EQ(T.capacity(), 8u);
 }
 
 TEST(llut_runtime, operator_lookup) {
