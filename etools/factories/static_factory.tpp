@@ -21,11 +21,12 @@ namespace etools::factories::details{
     template <typename... Args>
     inline Base* static_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args) noexcept
     {
+        // `table` is the constexpr MPH singleton; `table(key)` is an O(1) runtime lookup.
         constexpr const auto& table = mpht();
-        std::size_t index = table(key);           // note that `table()` is resolved to a constexpr singleton here.
+        std::size_t index = table(key);
         if (index >= capacity) return nullptr; // noting that `capacity` == `table.not_found()`
         Base* b = dispatch(index, std::forward<Args>(args)...);
-        return b; 
+        return b;
     }
     
     
@@ -74,11 +75,12 @@ namespace etools::factories::details{
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
     Base *static_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args) noexcept{
-        
-        // Compilation bottlenck in `dispatch_impl` for very large amount of keys ( >2000 )
+
+        // Compilation bottleneck in `dispatch_fold` for very large amount of keys ( >2000 )
         // due to call to nth_t. For k different constructors and n keys, the expected
         // compile time complexity is O(k*n).
-        
+        // Future: replace nth_t with meta::pack_at_t to amortize to O(n+k) total.
+
         return dispatch_fold(index, std::index_sequence_for<DerivedTypes...>{},
             std::forward<Args>(args)...);
     }

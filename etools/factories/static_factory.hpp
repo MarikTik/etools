@@ -170,7 +170,7 @@ namespace etools::factories{
             *          And a new instance replaces it.
             */
             template<typename... Args>
-            [[nodiscard]] Base* emplace(key_t key, Args&&... args) noexcept;
+            [[nodiscard]] static Base* emplace(key_t key, Args&&... args) noexcept;
 
         private:
             /**
