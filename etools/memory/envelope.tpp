@@ -16,8 +16,8 @@
 #ifndef ETOOLS_MEMORY_ENVELOPE_TPP_
 #define ETOOLS_MEMORY_ENVELOPE_TPP_
 #include "envelope.hpp"
-#include "eser/binary/serializer.hpp"
-#include "eser/binary/deserializer.hpp"
+#include <eser/binary/serializer.hpp>
+#include <eser/binary/deserializer.hpp>
 #include <cassert>
 
 namespace etools::memory{
@@ -32,14 +32,12 @@ namespace etools::memory{
 
     template<typename Deleter>
     envelope<Deleter>::envelope(std::unique_ptr<std::byte[], Deleter> data, std::size_t capacity, std::size_t size)
-        : 
+        :
         _data{std::move(data)},
-         _size{size},
+        _size{size},
         _capacity{capacity}
-       
     {
-        assert(size <= capacity && "Envelope size cannot exceed capacity");
-        if (size > capacity) _size = capacity;
+        assert(size <= capacity && "envelope: size cannot exceed capacity");
     }
 
     template<typename Deleter>
@@ -85,8 +83,8 @@ namespace etools::memory{
     template<typename Deleter>
     template<typename... Ts>
     inline void envelope<Deleter>::pack(Ts&&... args) {
-        if (data()) 
-            _size = eser::binary::serialize(std::forward<Ts>(args)...).to(_data.get(), _capacity);
+        assert(_data && "envelope::pack(): called on a moved-from or null-data envelope");
+        _size = eser::binary::serialize(std::forward<Ts>(args)...).to(_data.get(), _capacity);
     }
 
 } // namespace etools::memory

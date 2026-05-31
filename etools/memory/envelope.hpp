@@ -2,22 +2,21 @@
 /**
 * @file envelope.hpp
 *
-* @brief Defines the `envelope` class for managing task parameters and results in the etask framework.
+* @brief Defines the `envelope` class for owning and serializing a fixed-size byte buffer.
 *
 * @ingroup etools_memory etools::memory
 *
 * The `envelope` class encapsulates a contiguous block of memory used for transmitting
-* serialized data between tasks and the communication layer. It provides both ownership
-* semantics for dynamically allocated data and convenient methods for packing and unpacking
-* structured parameters or results.
+* serialized data between subsystems. It provides both ownership semantics for the
+* underlying buffer and convenient methods for packing and unpacking structured values.
 *
 * Unlike traditional byte buffers, `envelope` is designed to allow flexible memory sources.
 * You can allocate memory dynamically (heap), from a memory pool, or reuse a static buffer.
 * This is possible due to the support for custom deleters via a template parameter.
 *
 * ### Use Cases
-* - Packing structured task output and returning it via a result envelope
-* - Passing serialized input data to tasks in a uniform way
+* - Packing structured output into a transmittable buffer
+* - Passing serialized input across a layer boundary in a uniform way
 * - Reusing memory from a static pool (via custom deleter)
 *
 * ### Example Usage
@@ -53,19 +52,18 @@
 namespace etools::memory{
     /**
     * @class envelope
-    * 
-    * @brief Owns and manages a block of memory used for transmitting serialized task parameters and results.
     *
-    * The `envelope` class acts as a flexible data container for the etask communication protocol.
-    * It provides:
+    * @brief Owns and manages a block of memory used for transmitting serialized data.
     *
-    * - ownership of a dynamically allocated memory block via unique_ptr
+    * The `envelope` class acts as a flexible data container. It provides:
+    *
+    * - ownership of a memory block via `unique_ptr` with a customizable deleter
     * - methods for packing structured data into the block
     * - methods for unpacking data from the block into typed objects
     *
-    * @tparam Deleter The function to delete the memory owned by `data` pointer when `envelope` is destroyed. 
-    *         Defalted to `std::default_delete<std::byte[]>>`.
-    * 
+    * @tparam Deleter The function to delete the memory owned by `data` pointer when `envelope` is destroyed.
+    *         Defaulted to `std::default_delete<std::byte[]>`.
+    *
     * @note The envelope is a move-only type and cannot be copied.
     */
     template<typename Deleter = std::default_delete<std::byte[]>>
@@ -94,9 +92,10 @@ namespace etools::memory{
         * @param capacity The total size of the memory block in bytes.
         * @param size The number of bytes already used (e.g., serialized content).
         *
-        * @note The `size` must be less than or equal to `capacity`.
-        * @warning Passing an incorrect `size` will result in `Assertion Error` in debug mode,
-        * in release however it would be replaced by capacity.
+        * @pre `size <= capacity`.
+        * @warning Violating the precondition triggers an `assert` in debug builds.
+        *          In release builds the value is trusted; the caller is responsible
+        *          for honoring the contract.
         */
         inline envelope(std::unique_ptr<std::byte[], Deleter> data, std::size_t capacity, std::size_t size);
 
@@ -137,12 +136,14 @@ namespace etools::memory{
         /**
         * @brief Packs one or more typed values into the envelope's memory block.
         *
-        * This method serializes the given values into a dynamically allocated
-        * memory block owned by the envelope.
+        * This method serializes the given values into the memory block owned by
+        * the envelope.
         *
         * @tparam Ts... The types of the values to serialize.
         * @param args The values to serialize into the envelope.
         *
+        * @pre The envelope owns a non-null buffer (i.e. has not been moved from).
+        * @warning Violating the precondition triggers an `assert` in debug builds.
         * @note Any existing data in the envelope is discarded and replaced
         *       with the new packed contents.
         */

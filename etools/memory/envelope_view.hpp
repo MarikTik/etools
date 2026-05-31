@@ -6,7 +6,7 @@
 *
 * @ingroup etools_memory etools::memory
 *
-* The `envelope_view` class provides a lightweight, read-only interface to serialized task data.
+* The `envelope_view` class provides a lightweight, read-only interface to serialized data.
 * It does not manage or own memory, making it suitable for inspecting the contents of an envelope
 * without copying or taking ownership.
 *
@@ -32,11 +32,11 @@ namespace etools::memory {
 
     /**
     * @class envelope_view
-    * @brief Non-owning, read-only view of serialized task data.
+    * @brief Non-owning, read-only view over a serialized byte buffer.
     *
-    * The `envelope_view` class provides non-owning access to a contiguous memory buffer containing
-    * serialized task parameters or results. It allows unpacking typed data using the same API as `envelope`,
-    * but without memory management overhead.
+    * The `envelope_view` class provides non-owning access to a contiguous memory buffer
+    * containing serialized values. It allows unpacking typed data using the same API as
+    * `envelope`, but without memory management overhead.
     *
     * This class is useful when deserializing incoming data that is managed externally
     * (e.g., received over the network or passed by reference).
@@ -47,18 +47,19 @@ namespace etools::memory {
     class envelope_view{
     public:
         /**
-        * @brief Constructs an envelope_view from a raw data pointer and its capacity.
+        * @brief Constructs an envelope_view from a raw data pointer and the length of the viewed range.
         *
         * @param data A pointer to the external memory block (must remain valid during use).
-        * @param capacity The capacity of the memory block in bytes.
+        * @param size The length of the viewed range in bytes.
         */
-        inline envelope_view(const std::byte* data, std::size_t capacity) noexcept;       
+        inline envelope_view(const std::byte* data, std::size_t size) noexcept;
 
         /**
         * @brief Unpacks the envelope contents into a tuple of typed values.
         *
-        * Deserializes the buffer into strongly typed values using the `ser::binary::deserialize` API.
-        * 
+        * Deserializes the buffer into strongly typed values using the
+        * `eser::binary::deserialize` API.
+        *
         * @tparam Ts... The types to deserialize and extract from the view.
         * @return A tuple containing the deserialized values.
         */
@@ -72,14 +73,19 @@ namespace etools::memory {
         *
         * @return A pointer to the beginning of the memory block.
         */
-        const inline std::byte* data() const noexcept;
+        inline const std::byte* data() const noexcept;
 
         /**
-        * @brief Returns the capacity of the viewed memory block in bytes.
+        * @brief Returns the length of the viewed memory range in bytes.
         *
-        * @return Number of bytes available in the envelope view.
+        * The view does not distinguish "used" from "total" bytes — it is a
+        * fixed read-only window over an externally-owned buffer, so the only
+        * meaningful length is the size passed at construction. Matches the
+        * `std::string_view::size()` / `std::span::size()` convention.
+        *
+        * @return Number of bytes in the viewed range.
         */
-        inline std::size_t capacity() const noexcept;
+        inline std::size_t size() const noexcept;
 
         /// Default copy constructor (trivial shallow copy).
         envelope_view(const envelope_view&) = default;
@@ -90,20 +96,12 @@ namespace etools::memory {
         /// Move assignment operator (trivial shallow move).
         envelope_view& operator=(envelope_view&&) = default;
         
-    private: 
-        /**
-        * @brief Pointer to the internal byte data.
-        *
-        * This pointer provides read-only access to the envelope's contents.
-        */
+    private:
+        /// Pointer to the viewed byte range. Not owned.
         const std::byte* _data;
 
-        /**
-        * @brief Capacity of the envelope's memory block in bytes.
-        *
-        * This indicates how many bytes are available in the envelope.
-        */
-        std::size_t _capacity;
+        /// Length of the viewed range in bytes.
+        std::size_t _size;
     };
 }
 #include "envelope_view.tpp"
