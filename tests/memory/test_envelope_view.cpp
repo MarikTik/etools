@@ -23,9 +23,9 @@ TEST(EnvelopeViewTest, Constructor_Positive) {
     // Create a view from the data.
     etools::memory::envelope_view view(buffer, data_size);
 
-    // Verify the view's data and capacity are correctly set.
+    // Verify the view's data and size are correctly set.
     EXPECT_EQ(view.data(), buffer);
-    EXPECT_EQ(view.capacity(), data_size);
+    EXPECT_EQ(view.size(), data_size);
 }
 
 TEST(EnvelopeViewTest, UnpackScalar_Positive) {
@@ -76,13 +76,13 @@ TEST(EnvelopeViewTest, CopySemantics_Positive) {
     // Test copy constructor (trivial shallow copy).
     etools::memory::envelope_view view2 = view1;
     EXPECT_EQ(view2.data(), original_data_ptr);
-    EXPECT_EQ(view2.capacity(), data_size);
+    EXPECT_EQ(view2.size(), data_size);
 
     // Test copy assignment.
     etools::memory::envelope_view view3(nullptr, 0);
     view3 = view1;
     EXPECT_EQ(view3.data(), original_data_ptr);
-    EXPECT_EQ(view3.capacity(), data_size);
+    EXPECT_EQ(view3.size(), data_size);
 }
 
 TEST(EnvelopeViewTest, MoveSemantics_Positive) {
@@ -96,11 +96,11 @@ TEST(EnvelopeViewTest, MoveSemantics_Positive) {
     // Test move constructor (should be a shallow copy, not a move).
     etools::memory::envelope_view view2 = std::move(view1);
     EXPECT_EQ(view2.data(), original_data_ptr);
-    EXPECT_EQ(view2.capacity(), data_size);
+    EXPECT_EQ(view2.size(), data_size);
     
     // Test move assignment.
     etools::memory::envelope_view view3(nullptr, 0);
     view3 = std::move(view2);
     EXPECT_EQ(view3.data(), original_data_ptr);
-    EXPECT_EQ(view3.capacity(), data_size);
+    EXPECT_EQ(view3.size(), data_size);
 }
