@@ -16,8 +16,11 @@
 * - 2025-08-10
 *      - added use of `std::launder` for compile optimization
 *        safety guarantee on different type memory access.
-*      - Added separate `std::launder` alias in case it is not defined on the platform. 
-*
+*      - Added separate `std::launder` alias in case it is not defined on the platform.
+* - 2026-05-30
+*      - Removed the `std::launder` shim. Defining symbols in `namespace std`
+*        is UB, and a no-op fallback would silently defeat the optimizer's
+*        aliasing barrier. The file now hard-requires the C++17 feature.
 */
 
 #ifndef ETOOLS_MEMORY_SLOT_TPP_
@@ -26,12 +29,10 @@
 #include <cassert>
 #include <new>
 
-// Make sure std::launder is defined.
-#if __cplusplus < 201703L || !defined(__cpp_lib_launder)
-namespace std {
-    template<class T> constexpr T* launder(T* p) noexcept { return p; }
-}
-#endif
+static_assert(__cpp_lib_launder >= 201606L,
+    "etools::memory::slot requires <new>'s std::launder (C++17, "
+    "__cpp_lib_launder >= 201606). A no-op shim would silently miscompile "
+    "under the optimizer, so we refuse to build instead.");
 
 namespace etools::memory {
 

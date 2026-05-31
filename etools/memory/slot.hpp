@@ -62,15 +62,18 @@ namespace etools::memory {
     * ```
     *
     *
-    * @warning ```
+    * @warning
     * - `construct()` will assert in debug mode if called twice without destruction.
+    * - `destroy()` is idempotent — calling it on a not-constructed slot is a no-op.
     * - Calling `get()` before construction returns `nullptr`.
-    * - This class is NOT thread-safe. It is intended for single-core embedded platforms or
-    *   cooperative multitasking environments where explicit synchronization is not needed.
-    * ```
+    * - This class is NOT thread-safe. It is intended for single-core embedded platforms
+    *   or cooperative multitasking environments where explicit synchronization is not needed.
     */
     template<typename T>
     class slot {
+        static_assert(std::is_nothrow_destructible_v<T>,
+            "slot<T> requires T to be nothrow-destructible; a throwing destructor "
+            "could leave the slot in a half-state during emplace().");
         public:
         /**
         * @brief Returns the singleton instance of `slot<T>`.
@@ -150,21 +153,22 @@ namespace etools::memory {
         slot() = default;
         
         /**
-        * @brief Statically allocated aligned buffer to hold the object of type `T`.
+        * @brief Aligned buffer holding the object of type `T`.
         *
-        * This memory is never deallocated and lives for the duration of the program.
-        * Placement new is used to construct the object into this buffer.
+        * Static so that all references obtained through `instance()` share the
+        * same storage. Paired with `_constructed` below; the two must agree on
+        * storage class or the buffer's liveness state would diverge from the
+        * bookkeeping flag.
         */
         alignas(T) static inline std::byte _mem[sizeof(T)];
-        
+
         /**
-        * @brief Internal flag indicating whether the object is currently constructed.
+        * @brief Lifecycle flag for the object in `_mem`.
         *
-        * This allows the slot to track the validity of `get()` and prevent undefined behavior.
-        *
-        * @note This is NOT atomic. Not suitable for concurrent access.
+        * Static for the same reason as `_mem`: one buffer, one flag. Not atomic;
+        * not safe under concurrent access.
         */
-        bool _constructed = false;
+        static inline bool _constructed = false;
     };
 
 
