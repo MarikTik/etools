@@ -64,6 +64,12 @@ namespace etools::memory{
     * @tparam Deleter The function to delete the memory owned by `data` pointer when `envelope` is destroyed.
     *         Defaulted to `std::default_delete<std::byte[]>`.
     *
+    * @invariant `_size <= _capacity` at all times.
+    * @invariant Either `_data` is non-null (the envelope owns a buffer) or
+    *            the envelope has been moved from / default-constructed and
+    *            both `_size` and `_capacity` are zero.
+    * @invariant The envelope owns its buffer uniquely; no two envelopes share storage.
+    *
     * @note The envelope is a move-only type and cannot be copied.
     */
     template<typename Deleter = std::default_delete<std::byte[]>>
@@ -72,14 +78,20 @@ namespace etools::memory{
         /**
         * @brief Constructs an envelope by taking ownership of the given memory block.
         *
-        * This constructor is typically used when the entire buffer is reserved for future writes (packing).
+        * This constructor is typically used when the entire buffer is reserved
+        * for future writes (packing).
         *
         * @param data A unique_ptr to the allocated byte array containing the envelope contents.
         * @param capacity The total capacity of the memory block in bytes.
         *
+        * @post `this->capacity() == capacity` and `this->size() == 0`.
+        * @post `this->data()` returns the address of the buffer formerly owned by `data`.
+        *
         * @note The `Deleter` template parameter determines how the memory will be released.
         *       This enables support for non-standard memory sources like stack-allocated memory,
         *       memory pools, or aligned arenas.
+        * @note No assertion is made on `capacity > 0`; a zero-capacity envelope is
+        *       legal but cannot be packed into.
         */
         inline envelope(std::unique_ptr<std::byte[], Deleter> data, std::size_t capacity);
 
@@ -93,6 +105,8 @@ namespace etools::memory{
         * @param size The number of bytes already used (e.g., serialized content).
         *
         * @pre `size <= capacity`.
+        * @post `this->capacity() == capacity` and `this->size() == size`.
+        *
         * @warning Violating the precondition triggers an `assert` in debug builds.
         *          In release builds the value is trusted; the caller is responsible
         *          for honoring the contract.
@@ -105,9 +119,15 @@ namespace etools::memory{
         * Transfers ownership of the memory block from another envelope.
         *
         * @param other The envelope to move from.
+        *
+        * @post `*this` owns the buffer formerly owned by `other`, with the same
+        *       `size()` and `capacity()`.
+        * @post `other` is left in a moved-from state: `data()` is `nullptr`,
+        *       `size()` is `0`, `capacity()` is `0`.
+        * @note `noexcept` — the operation only moves a `unique_ptr` and two `size_t`s.
         */
         envelope(envelope&& other) noexcept;
-        
+
         /**
         * @brief Move assignment operator.
         *
@@ -115,9 +135,13 @@ namespace etools::memory{
         *
         * @param other The envelope to move from.
         * @return Reference to this object.
+        *
+        * @post Same as the move constructor; `other` is left empty.
+        * @post Self-assignment is a no-op (`*this` is unchanged).
+        * @note `noexcept` — `unique_ptr` move-assignment is `noexcept`.
         */
         envelope& operator=(envelope&& other) noexcept;
-        
+
         /**
         * @brief Unpacks the envelope contents into a tuple of typed values.
         *
@@ -127,12 +151,16 @@ namespace etools::memory{
         * @tparam Ts... The types to deserialize and extract from the envelope.
         * @return A tuple containing the deserialized values.
         *
-        * @warning If `sizeof...(Ts) > size()`, the method will fallback to underlying 
-        * `deserializer` error handling which might involve assertion errors.
+        * @pre `this->size() >= sizeof(Ts) + ...` for trivially-copyable scalars;
+        *      the underlying deserializer enforces precise per-type requirements.
+        * @warning If the buffer is too short for the requested types the call
+        *          delegates to `eser::binary::deserializer`'s error handling,
+        *          which may itself `assert` in debug builds.
+        * @note Does not modify the envelope.
         */
         template<typename... Ts>
         inline std::tuple<Ts...> unpack() const;
-        
+
         /**
         * @brief Packs one or more typed values into the envelope's memory block.
         *
@@ -143,44 +171,59 @@ namespace etools::memory{
         * @param args The values to serialize into the envelope.
         *
         * @pre The envelope owns a non-null buffer (i.e. has not been moved from).
+        * @post `this->size()` reflects the number of bytes written by the
+        *       underlying serializer.
+        * @post Any previously-packed contents have been overwritten in-place.
+        *
         * @warning Violating the precondition triggers an `assert` in debug builds.
-        * @note Any existing data in the envelope is discarded and replaced
-        *       with the new packed contents.
+        * @warning Total serialized size of `args...` must not exceed `capacity()`;
+        *          the underlying serializer enforces this with its own diagnostic.
         */
         template<typename... Ts>
         inline void pack(Ts&&... args);
-        
+
         /**
         * @brief Returns a pointer to the internal byte data.
         *
         * Provides read-only access to the internal memory block.
         *
-        * @return A const pointer to the byte data held by the envelope, or nullptr if empty.
+        * @return A const pointer to the byte data held by the envelope, or `nullptr`
+        *         if the envelope has been moved from.
+        *
+        * @post The returned pointer is either `nullptr` or points to the start
+        *       of the owned buffer.
         */
         inline const std::byte* data() const noexcept;
-        
+
         /**
-        * @brief Returns the size of the used envelope's memory.
+        * @brief Returns the size of the used portion of the envelope's memory.
         *
         * @return The number of used bytes stored in the envelope.
+        *
+        * @post Return value is always `<= capacity()`.
         */
         inline std::size_t size() const noexcept;
 
         /**
-        * @brief Returns the total capacity of the envelope's memory
-        * 
-        * @return The number of bytes that are available.
+        * @brief Returns the total capacity of the envelope's memory.
+        *
+        * @return The number of bytes available in the underlying buffer.
+        *
+        * @post Return value is the capacity passed at construction, or `0` after move.
         */
         inline std::size_t capacity() const noexcept;
 
-        /// Delete copy constructor because envelope is a unique-ownership type.
+        /// Deleted copy constructor — envelope is a unique-ownership type.
         envelope(const envelope&) = delete;
-        
-        /// Delete copy assignment operator because envelope is a unique-ownership type.
+
+        /// Deleted copy assignment operator — envelope is a unique-ownership type.
         envelope& operator=(const envelope&) = delete;
     private:
+        /// Owned buffer. Null when moved-from or default-constructed.
         std::unique_ptr<std::byte[], Deleter> _data{};
-        std::size_t _size{0};    
+        /// Number of bytes currently used in the buffer. Always `<= _capacity`.
+        std::size_t _size{0};
+        /// Total length of the owned buffer in bytes. Zero when moved-from.
         std::size_t _capacity{0};
     };
 

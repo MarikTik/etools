@@ -41,6 +41,10 @@ namespace etools::memory {
     * This class is useful when deserializing incoming data that is managed externally
     * (e.g., received over the network or passed by reference).
     *
+    * @invariant The pair `(_data, _size)` describes a contiguous read-only range
+    *            owned externally. The view never modifies, allocates, or deallocates.
+    * @invariant Trivially copyable, trivially movable, trivially destructible.
+    *
     * @warning The lifetime of the pointed-to memory must exceed that of the envelope_view.
     *          The class does not perform bounds checking or memory safety.
     */
@@ -51,6 +55,14 @@ namespace etools::memory {
         *
         * @param data A pointer to the external memory block (must remain valid during use).
         * @param size The length of the viewed range in bytes.
+        *
+        * @pre `data` either points to at least `size` valid bytes, or is `nullptr` with `size == 0`.
+        * @post `this->data() == data` and `this->size() == size`.
+        *
+        * @note `noexcept` — the constructor stores the pointer and size only.
+        * @warning No null-check or bounds-check is performed. Passing a non-null
+        *          `data` with `size` larger than the buffer is undefined behaviour
+        *          on any subsequent `unpack()`.
         */
         inline envelope_view(const std::byte* data, std::size_t size) noexcept;
 
@@ -62,6 +74,13 @@ namespace etools::memory {
         *
         * @tparam Ts... The types to deserialize and extract from the view.
         * @return A tuple containing the deserialized values.
+        *
+        * @pre `this->size()` is at least as large as the total serialized footprint
+        *      of `Ts...`; the underlying deserializer enforces precise requirements.
+        * @warning If the precondition is violated the call delegates to
+        *          `eser::binary::deserializer`'s error handling, which may
+        *          `assert` in debug builds.
+        * @note Does not modify the viewed range.
         */
         template<typename ...Ts>
         inline std::tuple<Ts...> unpack() const;
@@ -71,7 +90,10 @@ namespace etools::memory {
         *
         * Provides read-only access to the viewed memory buffer.
         *
-        * @return A pointer to the beginning of the memory block.
+        * @return A pointer to the beginning of the memory block (may be `nullptr`
+        *         if the view was constructed with a null pointer).
+        *
+        * @post Returns the same pointer that was passed at construction.
         */
         inline const std::byte* data() const noexcept;
 
@@ -84,6 +106,8 @@ namespace etools::memory {
         * `std::string_view::size()` / `std::span::size()` convention.
         *
         * @return Number of bytes in the viewed range.
+        *
+        * @post Returns the same value that was passed at construction.
         */
         inline std::size_t size() const noexcept;
 
