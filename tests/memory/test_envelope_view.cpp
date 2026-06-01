@@ -89,18 +89,83 @@ TEST(EnvelopeViewTest, MoveSemantics_Positive) {
     std::byte buffer[100]{};
     auto serialized_data = eser::binary::serialize(1.0, 2.0, 3.0);
     size_t data_size = serialized_data.to(buffer);
-    
+
     etools::memory::envelope_view view1(buffer, data_size);
     const std::byte* original_data_ptr = view1.data();
-    
+
     // Test move constructor (should be a shallow copy, not a move).
     etools::memory::envelope_view view2 = std::move(view1);
     EXPECT_EQ(view2.data(), original_data_ptr);
     EXPECT_EQ(view2.size(), data_size);
-    
+
     // Test move assignment.
     etools::memory::envelope_view view3(nullptr, 0);
     view3 = std::move(view2);
     EXPECT_EQ(view3.data(), original_data_ptr);
     EXPECT_EQ(view3.size(), data_size);
+}
+
+// --- Degenerate / boundary inputs ----------------------------------------
+
+TEST(EnvelopeViewTest, Constructor_Nullptr_ZeroSize_Legal) {
+    // The constructor's documented precondition is "data either points to at
+    // least size valid bytes, or is nullptr with size == 0". The degenerate
+    // (nullptr, 0) form must construct cleanly and is useful as a default-
+    // initialized placeholder before a real view is assigned in.
+    etools::memory::envelope_view v(nullptr, 0);
+    EXPECT_EQ(v.data(), nullptr);
+    EXPECT_EQ(v.size(), 0u);
+}
+
+TEST(EnvelopeViewTest, MultipleUnpackCalls_AreIndependent) {
+    // unpack() is documented as non-mutating on the viewed range. Calling
+    // it twice on the same view must yield identical results — there's no
+    // "consumed bytes" pointer hiding inside the view.
+    std::byte buffer[64]{};
+    size_t data_size = eser::binary::serialize(11, 22).to(buffer);
+
+    etools::memory::envelope_view v(buffer, data_size);
+    auto [a1, b1] = v.unpack<int, int>();
+    auto [a2, b2] = v.unpack<int, int>();
+
+    EXPECT_EQ(a1, 11); EXPECT_EQ(b1, 22);
+    EXPECT_EQ(a2, 11); EXPECT_EQ(b2, 22);
+}
+
+TEST(EnvelopeViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
+    // A view is a non-owning value type. Two views built on the same buffer
+    // should be interchangeable — no hidden per-view state.
+    std::byte buffer[64]{};
+    size_t data_size = eser::binary::serialize(double{3.14}, char{'M'}).to(buffer);
+
+    etools::memory::envelope_view v_a(buffer, data_size);
+    etools::memory::envelope_view v_b(buffer, data_size);
+
+    EXPECT_EQ(v_a.data(), v_b.data());
+    EXPECT_EQ(v_a.size(), v_b.size());
+
+    auto [da, ca] = v_a.unpack<double, char>();
+    auto [db, cb] = v_b.unpack<double, char>();
+    EXPECT_DOUBLE_EQ(da, db);
+    EXPECT_EQ(ca, cb);
+}
+
+// --- Compile-time properties --------------------------------------------
+
+TEST(EnvelopeViewCompile, TriviallyCopyableAndMovable) {
+    // The class-level invariant claims trivial copyability/movability.
+    // Lock that in so any future addition of a non-trivial member trips it.
+    static_assert(std::is_trivially_copyable_v<etools::memory::envelope_view>,
+        "envelope_view must remain trivially copyable");
+    static_assert(std::is_trivially_destructible_v<etools::memory::envelope_view>,
+        "envelope_view must remain trivially destructible");
+    static_assert(std::is_nothrow_move_constructible_v<etools::memory::envelope_view>,
+        "envelope_view must be nothrow movable");
+}
+
+TEST(EnvelopeViewCompile, DataReturnsConstByteStar) {
+    static_assert(std::is_same_v<
+        decltype(std::declval<const etools::memory::envelope_view&>().data()),
+        const std::byte*>,
+        "data() must return const std::byte*");
 }

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include <etools/memory/envelope.hpp>
+#include <memory>
+#include <utility>
 
 struct Message {
     int id;
@@ -130,4 +132,132 @@ TEST(EnvelopeTest, ConstructWithCustomNoopDeleter)
     EXPECT_DOUBLE_EQ(d, 3.14);
     EXPECT_EQ(ch, 'Z');
     EXPECT_LE(env.size(), env.capacity());
+}
+
+// --- Custom-deleter invocation -------------------------------------------
+//
+// The headline feature of envelope is that the Deleter template parameter
+// lets users wire in pool/static/heap memory uniformly. Up to now nothing
+// in the suite verified that the deleter *actually runs* at destruction.
+
+namespace {
+    struct counting_deleter {
+        // shared so the lambda captured by std::function-like deleter can
+        // tick a counter we can read from the test body.
+        static inline int invocations = 0;
+        static inline std::byte* last_pointer = nullptr;
+        void operator()(std::byte* p) const noexcept {
+            ++invocations;
+            last_pointer = p;
+            delete[] p;
+        }
+        static void reset() noexcept { invocations = 0; last_pointer = nullptr; }
+    };
+}
+
+TEST(EnvelopeTest, Deleter_InvokedOnDestruction) {
+    counting_deleter::reset();
+    constexpr std::size_t cap = 16;
+    std::byte* raw = new std::byte[cap];
+    {
+        std::unique_ptr<std::byte[], counting_deleter> ptr(raw, counting_deleter{});
+        etools::memory::envelope<counting_deleter> env(std::move(ptr), cap);
+        EXPECT_EQ(counting_deleter::invocations, 0) << "deleter must not run while envelope is alive";
+    }
+    EXPECT_EQ(counting_deleter::invocations, 1) << "deleter must run exactly once at destruction";
+    EXPECT_EQ(counting_deleter::last_pointer, raw) << "deleter must receive the buffer pointer";
+}
+
+TEST(EnvelopeTest, Deleter_NotInvokedAfterMoveFromObjectDies) {
+    counting_deleter::reset();
+    constexpr std::size_t cap = 16;
+    auto ptr = std::unique_ptr<std::byte[], counting_deleter>(new std::byte[cap], counting_deleter{});
+    {
+        etools::memory::envelope<counting_deleter> src(std::move(ptr), cap);
+        {
+            etools::memory::envelope<counting_deleter> dst = std::move(src);
+            EXPECT_EQ(counting_deleter::invocations, 0);
+        }
+        // dst went out of scope and ran the deleter; src is now moved-from
+        // and must NOT run it again when it dies.
+        EXPECT_EQ(counting_deleter::invocations, 1);
+    }
+    EXPECT_EQ(counting_deleter::invocations, 1) << "moved-from envelope must not double-free";
+}
+
+// --- Move semantics: moved-from invariant --------------------------------
+
+TEST(EnvelopeTest, MoveAssign_LeavesSourceInDocumentedEmptyState) {
+    constexpr std::size_t cap = 32;
+    etools::memory::envelope src(std::make_unique<std::byte[]>(cap), cap);
+    src.pack(42, 'A');
+    const auto src_size_before = src.size();
+
+    etools::memory::envelope dst(std::make_unique<std::byte[]>(8), 8);
+    dst = std::move(src);
+
+    EXPECT_EQ(src.data(),     nullptr);
+    EXPECT_EQ(src.size(),     0u);
+    EXPECT_EQ(src.capacity(), 0u);
+
+    EXPECT_NE(dst.data(),     nullptr);
+    EXPECT_EQ(dst.size(),     src_size_before);
+    EXPECT_EQ(dst.capacity(), cap);
+}
+
+TEST(EnvelopeTest, MoveAssign_SelfMoveIsNoop) {
+    constexpr std::size_t cap = 16;
+    etools::memory::envelope env(std::make_unique<std::byte[]>(cap), cap);
+    env.pack(int{123});
+    const auto* data_before = env.data();
+    const auto  size_before = env.size();
+    const auto  cap_before  = env.capacity();
+
+    // Self-move via reference indirection to defeat -Wself-move.
+    auto& alias = env;
+    env = std::move(alias);
+
+    EXPECT_EQ(env.data(),     data_before);
+    EXPECT_EQ(env.size(),     size_before);
+    EXPECT_EQ(env.capacity(), cap_before);
+
+    auto [i] = env.unpack<int>();
+    EXPECT_EQ(i, 123) << "self-move must not corrupt the payload";
+}
+
+// --- Constructor with pre-populated size: precondition holds -------------
+
+TEST(EnvelopeTest, ConstructWithPrepopulatedSize_AtCapacityIsLegal) {
+    // The (data, capacity, size) ctor's precondition is `size <= capacity`.
+    // size == capacity is the boundary case — it must not assert.
+    constexpr std::size_t cap = 8;
+    auto buf = std::make_unique<std::byte[]>(cap);
+    etools::memory::envelope env(std::move(buf), cap, cap);
+    EXPECT_EQ(env.size(),     cap);
+    EXPECT_EQ(env.capacity(), cap);
+}
+
+TEST(EnvelopeTest, ConstructWithPrepopulatedSize_ZeroSizeIsLegal) {
+    // size == 0 with capacity > 0 is the other boundary — equivalent to
+    // the two-arg constructor and must not assert.
+    constexpr std::size_t cap = 8;
+    auto buf = std::make_unique<std::byte[]>(cap);
+    etools::memory::envelope env(std::move(buf), cap, 0);
+    EXPECT_EQ(env.size(),     0u);
+    EXPECT_EQ(env.capacity(), cap);
+}
+
+// --- Pack + unpack round-trip for heterogeneous types --------------------
+
+TEST(EnvelopeTest, PackUnpack_HeterogeneousTypes_PreservesValues) {
+    constexpr std::size_t cap = 64;
+    etools::memory::envelope env(std::make_unique<std::byte[]>(cap), cap);
+
+    env.pack(int{-7}, double{2.71828}, char{'Q'});
+    EXPECT_LE(env.size(), env.capacity());
+
+    auto [i, d, c] = env.unpack<int, double, char>();
+    EXPECT_EQ(i, -7);
+    EXPECT_DOUBLE_EQ(d, 2.71828);
+    EXPECT_EQ(c, 'Q');
 }

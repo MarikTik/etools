@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 #include <etools/memory/slot.hpp>
-#include <vector>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 using namespace etools::memory;
 
@@ -44,15 +48,17 @@ struct TrivialObject {
 class SlotTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Reset static counters for each test
-        SimpleObject::constructor_calls = 0;
-        SimpleObject::destructor_calls = 0;
-        SimpleObject::constructed = false;
-
-        // Clean up slots to ensure a clean slate for each test
+        // Order matters: destroy any leftover object from a previous test
+        // FIRST, so the destructor's increment of destructor_calls lands on
+        // the *previous* test's counters. Only then do we zero out the
+        // counters for the current test.
         slot<SimpleObject>::instance().destroy();
         slot<TrivialObject>::instance().destroy();
         slot<ComplexObject>::instance().destroy();
+
+        SimpleObject::constructor_calls = 0;
+        SimpleObject::destructor_calls = 0;
+        SimpleObject::constructed = false;
     }
 };
 
@@ -168,21 +174,144 @@ TEST_F(SlotTest, Memory_AlignmentAndSize) {
 TEST_F(SlotTest, MultipleSlots_IndependentInstances) {
     auto& s1 = slot<SimpleObject>::instance();
     auto& s2 = slot<TrivialObject>::instance();
-    
+
     s1.construct(10);
     s2.construct(); // Trivial default construction
-    
+
     EXPECT_NE(s1.get(), nullptr);
     EXPECT_NE(s2.get(), nullptr);
-    
+
     // Ensure they are independent memory locations
     EXPECT_NE(static_cast<void*>(s1.get()), static_cast<void*>(s2.get()));
     EXPECT_EQ(s1.get()->value, 10);
-    
+
     s1.destroy();
     EXPECT_EQ(s1.get(), nullptr);
     EXPECT_NE(s2.get(), nullptr);
 
     s2.destroy();
     EXPECT_EQ(s2.get(), nullptr);
+}
+
+// --- Singleton identity --------------------------------------------------
+//
+// Every call to instance() must return the same object. This is the
+// post-condition of slot::instance() declared in the header.
+
+TEST_F(SlotTest, Instance_ReturnsSameObjectAcrossCalls) {
+    auto& a = slot<SimpleObject>::instance();
+    auto& b = slot<SimpleObject>::instance();
+    EXPECT_EQ(&a, &b) << "slot::instance() must return a stable reference";
+}
+
+TEST_F(SlotTest, Instance_AlignmentMatchesT) {
+    // The buffer is alignas(T); the pointer returned by get() must therefore
+    // be properly aligned for T. ComplexObject contains std::string and
+    // std::vector, which usually require alignment > 1.
+    auto& s = slot<ComplexObject>::instance();
+    ComplexObject* p = s.construct(1.5, "aligned");
+    auto addr = reinterpret_cast<std::uintptr_t>(p);
+    EXPECT_EQ(addr % alignof(ComplexObject), 0u)
+        << "slot<T>::get() must return an alignof(T)-aligned pointer";
+}
+
+// --- emplace() lifecycle accounting --------------------------------------
+//
+// Lifecycle_ConstructAndDestroy already exercises construct + destroy.
+// This test pins down emplace()'s exact dtor/ctor sequence over several
+// overwrites — important because emplace() runs destroy() internally, and
+// any future refactor of that path must keep the counts honest.
+
+TEST_F(SlotTest, Emplace_RepeatedlyOverwrites_CountsBalance) {
+    auto& s = slot<SimpleObject>::instance();
+
+    s.emplace(1);
+    s.emplace(2);
+    s.emplace(3);
+    s.emplace(4);
+
+    EXPECT_EQ(SimpleObject::constructor_calls, 4);
+    EXPECT_EQ(SimpleObject::destructor_calls, 3) << "every overwrite destroys the previous object exactly once";
+    EXPECT_EQ(s.get()->value, 4);
+}
+
+TEST_F(SlotTest, Destroy_OnEmptySlot_DoesNotCallDestructor) {
+    // The header documents destroy() as idempotent — calling it on a
+    // not-constructed slot must NOT call ~T().
+    auto& s = slot<SimpleObject>::instance();
+    EXPECT_EQ(s.get(), nullptr);
+    EXPECT_EQ(SimpleObject::destructor_calls, 0);
+
+    s.destroy();
+    s.destroy();
+    s.destroy();
+
+    EXPECT_EQ(SimpleObject::destructor_calls, 0)
+        << "destroy() on empty slot must not invoke ~T()";
+}
+
+// --- Move-only payload through emplace -----------------------------------
+
+namespace {
+    struct move_only_payload {
+        std::unique_ptr<int> p;
+        explicit move_only_payload(int v) : p(std::make_unique<int>(v)) {}
+        move_only_payload(move_only_payload&&) = default;
+        move_only_payload& operator=(move_only_payload&&) = default;
+        move_only_payload(const move_only_payload&) = delete;
+        move_only_payload& operator=(const move_only_payload&) = delete;
+    };
+}
+
+TEST_F(SlotTest, Emplace_PerfectForwarding_MoveOnlyType) {
+    // Verifies that arguments propagate by value-category through emplace's
+    // forwarding-reference parameter pack. If forwarding were broken the
+    // unique_ptr move would fail to compile.
+    auto& s = slot<move_only_payload>::instance();
+
+    auto src = std::make_unique<int>(42);
+    s.construct(std::move(*src)); // emplace from an rvalue int
+    // The constructor copied the int into a new unique_ptr internally.
+    ASSERT_NE(s.get(), nullptr);
+    EXPECT_NE(s.get()->p, nullptr);
+    EXPECT_EQ(*s.get()->p, 42);
+
+    s.destroy();
+}
+
+// --- Compile-time properties of slot -------------------------------------
+
+namespace {
+    struct throwing_dtor {
+        ~throwing_dtor() noexcept(false) {}
+    };
+    struct nothrow_dtor {
+        ~nothrow_dtor() = default;
+    };
+}
+
+// slot<throwing_dtor> would fail the class-level static_assert and is
+// therefore impossible to instantiate. We assert the *positive* case
+// here: well-formed types pass the destructor-noexcept gate.
+static_assert(std::is_nothrow_destructible_v<nothrow_dtor>,
+    "sanity: nothrow_dtor must qualify for slot<>");
+static_assert(!std::is_nothrow_destructible_v<throwing_dtor>,
+    "sanity: throwing_dtor must NOT qualify for slot<>");
+
+TEST(SlotCompile, GetReturnsPointerToT) {
+    static_assert(std::is_same_v<
+        decltype(std::declval<slot<SimpleObject>&>().get()),
+        SimpleObject*>,
+        "non-const get() must return SimpleObject*");
+    static_assert(std::is_same_v<
+        decltype(std::declval<const slot<SimpleObject>&>().get()),
+        const SimpleObject*>,
+        "const get() must return const SimpleObject*");
+}
+
+TEST(SlotCompile, InstanceReturnsSlotReference) {
+    static_assert(std::is_same_v<
+        decltype(slot<SimpleObject>::instance()),
+        slot<SimpleObject>&>,
+        "instance() must return slot<T>&");
 }
