@@ -21,34 +21,24 @@
 *      - Removed the `std::launder` shim. Defining symbols in `namespace std`
 *        is UB, and a no-op fallback would silently defeat the optimizer's
 *        aliasing barrier. The file now hard-requires the C++17 feature.
+*      - Value-type rework: storage/lifecycle/move logic moved into the
+*        `details::slot_base`/`slot_move_ctrl` base chain (honest movability
+*        traits). `emplace()`/`construct()` set the engaged flag only after a
+*        successful placement-new (strong guarantee on a throwing constructor).
 */
 
 #ifndef ETOOLS_MEMORY_SLOT_TPP_
 #define ETOOLS_MEMORY_SLOT_TPP_
 #include "slot.hpp"
-#include <cassert>
-#include <new>
-
-static_assert(__cpp_lib_launder >= 201606L,
-    "etools::memory::slot requires <new>'s std::launder (C++17, "
-    "__cpp_lib_launder >= 201606). A no-op shim would silently miscompile "
-    "under the optimizer, so we refuse to build instead.");
 
 namespace etools::memory {
-
-    template <typename T>
-    inline slot<T> &slot<T>::instance() noexcept
-    {
-        static slot inst;
-        return inst;
-    }
 
     template <typename T>
     template <typename... Args>
     inline T *slot<T>::construct(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>)
     {
         static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
-        assert(not _constructed && "Slot already constructed, cannot construct again.");
+        assert(not this->_constructed && "slot::construct(): slot already engaged; use emplace() to overwrite.");
         return emplace(std::forward<Args>(args)...);
     }
 
@@ -56,29 +46,64 @@ namespace etools::memory {
     template <typename... Args>
     inline T *slot<T>::emplace(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>){
         static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
-        if (_constructed) destroy();
-        _constructed = true;
-        return new (&_mem) T(std::forward<Args>(args)...);
+        this->reset();
+        // Construct first; only mark engaged on success. If T's constructor throws,
+        // the slot remains empty rather than claiming to hold a half-built object.
+        T* p = ::new (static_cast<void*>(&this->_mem)) T(std::forward<Args>(args)...);
+        this->_constructed = true;
+        return p;
     }
 
     template <typename T>
-    inline void slot<T>::destroy() noexcept(std::is_nothrow_destructible_v<T>) {
-        if (not _constructed) return; // No object to destroy
-        auto *p = std::launder(reinterpret_cast<T*>(&_mem));
-        p->~T();
-        _constructed = false;
+    inline void slot<T>::destroy() noexcept {
+        this->reset();
     }
 
     template <typename T>
-    inline T *slot<T>::get() noexcept  {
-        if (not _constructed) return nullptr;
-        return std::launder(reinterpret_cast<T*>(&_mem));
+    inline bool slot<T>::has_value() const noexcept {
+        return this->_constructed;
     }
-    
+
+    template <typename T>
+    inline slot<T>::operator bool() const noexcept {
+        return this->_constructed;
+    }
+
+    template <typename T>
+    inline T *slot<T>::get() noexcept {
+        if (not this->_constructed) return nullptr;
+        return this->ptr();
+    }
+
     template <typename T>
     inline const T *slot<T>::get() const noexcept {
-        if (not _constructed) return nullptr;
-        return std::launder(reinterpret_cast<const T*>(&_mem));
+        if (not this->_constructed) return nullptr;
+        return this->ptr();
     }
+
+    template <typename T>
+    inline T &slot<T>::operator*() noexcept {
+        assert(this->_constructed && "slot::operator*(): dereference of an empty slot.");
+        return *this->ptr();
+    }
+
+    template <typename T>
+    inline const T &slot<T>::operator*() const noexcept {
+        assert(this->_constructed && "slot::operator*(): dereference of an empty slot.");
+        return *this->ptr();
+    }
+
+    template <typename T>
+    inline T *slot<T>::operator->() noexcept {
+        assert(this->_constructed && "slot::operator->(): access on an empty slot.");
+        return this->ptr();
+    }
+
+    template <typename T>
+    inline const T *slot<T>::operator->() const noexcept {
+        assert(this->_constructed && "slot::operator->(): access on an empty slot.");
+        return this->ptr();
+    }
+
 } // namespace etools::memory
 #endif // ETOOLS_MEMORY_SLOT_TPP_
