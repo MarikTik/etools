@@ -102,7 +102,8 @@ struct h16 : base {
 };
 
 // Non-copyable, non-movable, default-constructible. Verifies that the
-// factory never accidentally requires copy/move on the registered type.
+// factory never accidentally requires copy/move on the registered type,
+// and that such a factory is correctly non-movable.
 struct i_noncopyable : base {
     static constexpr std::uint16_t key = 11;
     int v = 7;
@@ -169,13 +170,6 @@ using factory = static_factory<base, key_extractor, meta::typelist<Ts...>>;
 template <class... Ts>
 using factory_unwrapped = static_factory<base, key_extractor, Ts...>;
 
-// RAII helper: destroy the slots touched by a test so state never leaks
-// between tests. Destructor of slot<T> is a no-op if not constructed.
-template <class... Ts>
-struct clean {
-    ~clean() { (memory::slot<Ts>::instance().destroy(), ...); }
-};
-
 } // namespace
 
 // ===========================================================================
@@ -183,7 +177,7 @@ struct clean {
 //
 // No EXPECT/ASSERT: these tests exist so that any regression in the
 // compile-time machinery (key extraction, typelist unwrapping, the MPH
-// table, static-callability of emplace) fails the build rather than a test.
+// table, ownership model) fails the build rather than a test.
 // ===========================================================================
 
 TEST(StaticFactoryCompile, TypelistAdapterSpecialization) {
@@ -193,11 +187,11 @@ TEST(StaticFactoryCompile, TypelistAdapterSpecialization) {
     static_assert(sizeof(wrapped) > 0,   "wrapped form must instantiate");
     static_assert(sizeof(unwrapped) > 0, "unwrapped form must instantiate");
 
-    // Both must expose the same emplace signature.
+    // Both must expose the same emplace signature (on an instance).
     static_assert(
         std::is_same_v<
-            decltype(wrapped::emplace(std::declval<std::uint8_t>())),
-            decltype(unwrapped::emplace(std::declval<std::uint8_t>()))
+            decltype(std::declval<wrapped&>().emplace(std::declval<std::uint8_t>())),
+            decltype(std::declval<unwrapped&>().emplace(std::declval<std::uint8_t>()))
         >,
         "typelist adapter and unpacked form must share emplace return type"
     );
@@ -214,43 +208,18 @@ TEST(StaticFactoryCompile, KeyTypeDeducedFromExtractor) {
     );
 }
 
-// SFINAE probe: is `F::emplace(key, args...)` a valid expression without an
-// instance? If emplace ever loses `static`, this trait yields false_type.
-template <typename F, typename Key, typename... Args>
-constexpr auto callable_without_instance(int)
-    -> decltype(F::emplace(std::declval<Key>(), std::declval<Args>()...),
-                std::true_type{});
-
-template <typename F, typename Key, typename... Args>
-constexpr std::false_type callable_without_instance(...);
-
-template <typename F, typename Key, typename... Args>
-using callable_without_instance_t =
-    decltype(callable_without_instance<F, Key, Args...>(0));
-
-TEST(StaticFactoryCompile, EmplaceIsStaticallyCallable) {
-    using f = factory<a8, b8, c8>;
-
-    static_assert(callable_without_instance_t<f, std::uint8_t>::value,
-                  "factory::emplace(key) must be callable without an instance");
-    static_assert(callable_without_instance_t<f, std::uint8_t, int>::value,
-                  "factory::emplace(key, int) must be callable without an instance");
-    static_assert(callable_without_instance_t<f, std::uint8_t, std::string>::value,
-                  "factory::emplace(key, string) must be callable without an instance");
-}
-
 TEST(StaticFactoryCompile, EmplaceReturnsBasePointer) {
     using f = factory<a8, b8>;
     static_assert(
         std::is_same_v<
-            decltype(f::emplace(std::declval<std::uint8_t>())),
+            decltype(std::declval<f&>().emplace(std::declval<std::uint8_t>())),
             base*
         >,
         "emplace must return Base*"
     );
     static_assert(
         std::is_same_v<
-            decltype(f::emplace(std::declval<std::uint8_t>(), std::declval<int>())),
+            decltype(std::declval<f&>().emplace(std::declval<std::uint8_t>(), std::declval<int>())),
             base*
         >,
         "emplace with int argument must still return Base*"
@@ -259,9 +228,9 @@ TEST(StaticFactoryCompile, EmplaceReturnsBasePointer) {
 
 TEST(StaticFactoryCompile, EmplaceIsNoexcept) {
     using f = factory<a8, b8>;
-    static_assert(noexcept(f::emplace(std::declval<std::uint8_t>())),
+    static_assert(noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>())),
                   "default-construct dispatch is noexcept");
-    static_assert(noexcept(f::emplace(std::declval<std::uint8_t>(), std::declval<int>())),
+    static_assert(noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>(), std::declval<int>())),
                   "int-arg dispatch is noexcept");
 }
 
@@ -272,12 +241,28 @@ TEST(StaticFactoryCompile, HeterogeneousConstructorSignaturesAllRegisterable) {
     static_assert(sizeof(f) > 0, "type must instantiate");
 }
 
+TEST(StaticFactoryCompile, OwnershipModel_PinnedType) {
+    // The factory owns in-place storage for its derived objects, so it is a
+    // pinned type: copy and move are both deleted (like std::mutex). Hold it
+    // by reference / static / stack; never relocate it.
+    using f = factory<a8, b8, c8>;
+    static_assert(!std::is_copy_constructible_v<f>, "factory must not be copyable");
+    static_assert(!std::is_copy_assignable_v<f>,    "factory must not be copy-assignable");
+    static_assert(!std::is_move_constructible_v<f>, "factory must not be movable");
+    static_assert(!std::is_move_assignable_v<f>,    "factory must not be move-assignable");
+}
+
+TEST(SlotCompile, ConditionalMovability_PropagatesFromContainedType) {
+    // slot<T> (unlike the pinned factory) has honest conditional move traits.
+    static_assert(std::is_move_constructible_v<memory::slot<std::string>>,
+        "slot<movable T> must be move-constructible");
+    static_assert(!std::is_move_constructible_v<memory::slot<i_noncopyable>>,
+        "slot<non-movable T> must NOT be move-constructible");
+}
+
 TEST(StaticFactoryCompile, MphSurfaceIsBackendAgnostic) {
     // Verifies the cross-backend contract (size/capacity/not_found) holds for
-    // the table the factory will build internally. This isn't a test of
-    // optimal_mph itself — it's a guarantee that whichever backend
-    // optimal_mph picks for a given key set, the public surface stays
-    // identical from the factory's perspective.
+    // the table the factory will build internally.
     constexpr const auto& dense = hashing::optimal_mph<std::uint8_t>
         ::instance<a8::key, b8::key, c8::key>();
     static_assert(dense.size() == 3);
@@ -295,10 +280,9 @@ TEST(StaticFactoryCompile, MphSurfaceIsBackendAgnostic) {
 // ===========================================================================
 
 TEST(StaticFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
-    clean<a8> guard;
-    using f = factory<a8>;
+    factory<a8> f;
 
-    base* p = f::emplace(a8::key);
+    base* p = f.emplace(a8::key);
     ASSERT_NE(p, nullptr);
     EXPECT_STREQ(p->tag(), "a8");
     auto* a = dynamic_cast<a8*>(p);
@@ -307,11 +291,10 @@ TEST(StaticFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
 }
 
 TEST(StaticFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
-    clean<b8> guard;
     b8::reset_counts();
-    using f = factory<b8>;
+    factory<b8> f;
 
-    base* p = f::emplace(b8::key, 123);
+    base* p = f.emplace(b8::key, 123);
     ASSERT_NE(p, nullptr);
     auto* b = dynamic_cast<b8*>(p);
     ASSERT_NE(b, nullptr);
@@ -321,10 +304,9 @@ TEST(StaticFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
 }
 
 TEST(StaticFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
-    clean<h16> guard;
-    using f = factory<h16>;
+    factory<h16> f;
 
-    base* p = f::emplace(h16::key, 5, 3.5);
+    base* p = f.emplace(h16::key, 5, 3.5);
     ASSERT_NE(p, nullptr);
     auto* h = dynamic_cast<h16*>(p);
     ASSERT_NE(h, nullptr);
@@ -333,10 +315,9 @@ TEST(StaticFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
 }
 
 TEST(StaticFactoryRuntime, BaseConversion_DynamicCastBack) {
-    clean<g16> guard;
-    using f = factory<g16>;
+    factory<g16> f;
 
-    base* p = f::emplace(g16::key);
+    base* p = f.emplace(g16::key);
     ASSERT_NE(p, nullptr);
     auto* g = dynamic_cast<g16*>(p);
     ASSERT_NE(g, nullptr);
@@ -344,10 +325,9 @@ TEST(StaticFactoryRuntime, BaseConversion_DynamicCastBack) {
 }
 
 TEST(StaticFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
-    clean<i_noncopyable> guard;
-    using f = factory<i_noncopyable>;
+    factory<i_noncopyable> f;
 
-    base* p = f::emplace(i_noncopyable::key);
+    base* p = f.emplace(i_noncopyable::key);
     ASSERT_NE(p, nullptr);
     auto* i = dynamic_cast<i_noncopyable*>(p);
     ASSERT_NE(i, nullptr);
@@ -355,13 +335,12 @@ TEST(StaticFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
 }
 
 TEST(StaticFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
-    clean<a8, b8, c8> guard;
     b8::reset_counts();
-    using f = factory<a8, b8, c8>;
+    factory<a8, b8, c8> f;
 
-    base* pa = f::emplace(a8::key);
-    base* pb = f::emplace(b8::key, 77);
-    base* pc = f::emplace(c8::key, std::string("z"));
+    base* pa = f.emplace(a8::key);
+    base* pb = f.emplace(b8::key, 77);
+    base* pc = f.emplace(c8::key, std::string("z"));
 
     ASSERT_NE(pa, nullptr);
     ASSERT_NE(pb, nullptr);
@@ -377,16 +356,42 @@ TEST(StaticFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
     EXPECT_NE(pb, pc);
 }
 
+TEST(StaticFactoryRuntime, DestructorDestroysOwnedObjects) {
+    b8::reset_counts();
+    {
+        factory<b8> f;
+        ASSERT_NE(f.emplace(b8::key, 5), nullptr);
+        EXPECT_EQ(b8::ctor_calls, 1);
+        EXPECT_EQ(b8::dtor_calls, 0);
+    } // factory destroyed here -> owned slot destroyed -> b8 destructed
+    EXPECT_EQ(b8::dtor_calls, 1) << "~static_factory must destroy objects in its slots";
+}
+
+TEST(StaticFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
+    factory<b8> f1;
+    factory<b8> f2;
+    b8::reset_counts();
+
+    base* p1 = f1.emplace(b8::key, 1);
+    base* p2 = f2.emplace(b8::key, 2);
+
+    ASSERT_NE(p1, nullptr);
+    ASSERT_NE(p2, nullptr);
+    // Two distinct factories -> two distinct slots -> two distinct addresses.
+    EXPECT_NE(p1, p2);
+    EXPECT_EQ(dynamic_cast<b8*>(p1)->value, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(p2)->value, 2);
+}
+
 // ===========================================================================
-// Runtime — perfect forwarding (the main coverage the user asked for)
+// Runtime — perfect forwarding
 // ===========================================================================
 
 TEST(StaticFactoryForwarding, StringLvalue_PicksCopyCtor) {
-    clean<c8> guard;
-    using f = factory<c8>;
+    factory<c8> f;
 
     std::string s = "hello";
-    base* p = f::emplace(c8::key, s);
+    base* p = f.emplace(c8::key, s);
     ASSERT_NE(p, nullptr);
     auto* c = dynamic_cast<c8*>(p);
     ASSERT_NE(c, nullptr);
@@ -396,10 +401,9 @@ TEST(StaticFactoryForwarding, StringLvalue_PicksCopyCtor) {
 }
 
 TEST(StaticFactoryForwarding, StringRvalue_PicksMoveCtor) {
-    clean<c8> guard;
-    using f = factory<c8>;
+    factory<c8> f;
 
-    base* p = f::emplace(c8::key, std::string("world"));
+    base* p = f.emplace(c8::key, std::string("world"));
     ASSERT_NE(p, nullptr);
     auto* c = dynamic_cast<c8*>(p);
     ASSERT_NE(c, nullptr);
@@ -408,13 +412,10 @@ TEST(StaticFactoryForwarding, StringRvalue_PicksMoveCtor) {
 }
 
 TEST(StaticFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
-    clean<c8> guard;
-    using f = factory<c8>;
+    factory<c8> f;
 
-    // std::move on an lvalue produces an rvalue reference — same as a
-    // temporary from the forwarding-reference rule's perspective.
     std::string s = "moved";
-    base* p = f::emplace(c8::key, std::move(s));
+    base* p = f.emplace(c8::key, std::move(s));
     ASSERT_NE(p, nullptr);
     auto* c = dynamic_cast<c8*>(p);
     ASSERT_NE(c, nullptr);
@@ -423,11 +424,10 @@ TEST(StaticFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
 }
 
 TEST(StaticFactoryForwarding, ConstLvalue_PicksCopyCtor) {
-    clean<c8> guard;
-    using f = factory<c8>;
+    factory<c8> f;
 
     const std::string s = "constref";
-    base* p = f::emplace(c8::key, s);
+    base* p = f.emplace(c8::key, s);
     ASSERT_NE(p, nullptr);
     auto* c = dynamic_cast<c8*>(p);
     ASSERT_NE(c, nullptr);
@@ -436,13 +436,10 @@ TEST(StaticFactoryForwarding, ConstLvalue_PicksCopyCtor) {
 }
 
 TEST(StaticFactoryForwarding, TripleCtor_ByValue_OneArg) {
-    clean<triple_ctor> guard;
-    using f = factory<triple_ctor>;
+    factory<triple_ctor> f;
 
-    // Single string argument — the by-value ctor is the only single-arg
-    // overload. by-value sinks happily from both lvalue and rvalue.
     std::string s = "by-value-lvalue";
-    base* p = f::emplace(triple_ctor::key, s);
+    base* p = f.emplace(triple_ctor::key, s);
     ASSERT_NE(p, nullptr);
     auto* t = dynamic_cast<triple_ctor*>(p);
     ASSERT_NE(t, nullptr);
@@ -451,10 +448,9 @@ TEST(StaticFactoryForwarding, TripleCtor_ByValue_OneArg) {
 }
 
 TEST(StaticFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
-    clean<triple_ctor> guard;
-    using f = factory<triple_ctor>;
+    factory<triple_ctor> f;
 
-    base* p = f::emplace(triple_ctor::key, std::string("by-value-rvalue"));
+    base* p = f.emplace(triple_ctor::key, std::string("by-value-rvalue"));
     ASSERT_NE(p, nullptr);
     auto* t = dynamic_cast<triple_ctor*>(p);
     ASSERT_NE(t, nullptr);
@@ -463,12 +459,10 @@ TEST(StaticFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
 }
 
 TEST(StaticFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
-    clean<triple_ctor> guard;
-    using f = factory<triple_ctor>;
+    factory<triple_ctor> f;
 
-    // Two-arg form with int tag — selects the const-lvalue-ref overload.
     std::string s = "cref-overload";
-    base* p = f::emplace(triple_ctor::key, s, 1);
+    base* p = f.emplace(triple_ctor::key, s, 1);
     ASSERT_NE(p, nullptr);
     auto* t = dynamic_cast<triple_ctor*>(p);
     ASSERT_NE(t, nullptr);
@@ -478,11 +472,9 @@ TEST(StaticFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
 }
 
 TEST(StaticFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
-    clean<triple_ctor> guard;
-    using f = factory<triple_ctor>;
+    factory<triple_ctor> f;
 
-    // Two-arg form with double tag — selects the rvalue-ref overload.
-    base* p = f::emplace(triple_ctor::key, std::string("rvalue-overload"), 1.0);
+    base* p = f.emplace(triple_ctor::key, std::string("rvalue-overload"), 1.0);
     ASSERT_NE(p, nullptr);
     auto* t = dynamic_cast<triple_ctor*>(p);
     ASSERT_NE(t, nullptr);
@@ -491,11 +483,10 @@ TEST(StaticFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
 }
 
 TEST(StaticFactoryForwarding, MoveOnlyType_UniquePtr) {
-    clean<d8> guard;
-    using f = factory<d8>;
+    factory<d8> f;
 
     auto up = std::make_unique<int>(7);
-    base* p = f::emplace(d8::key, std::move(up));
+    base* p = f.emplace(d8::key, std::move(up));
     ASSERT_NE(p, nullptr);
     EXPECT_EQ(up.get(), nullptr) << "ownership must transfer through the factory";
     auto* d = dynamic_cast<d8*>(p);
@@ -506,14 +497,12 @@ TEST(StaticFactoryForwarding, MoveOnlyType_UniquePtr) {
 }
 
 TEST(StaticFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
-    clean<move_observer> guard;
-    using f = factory<move_observer>;
+    factory<move_observer> f;
 
-    // Long enough to defeat SSO so move actually shows in source state.
     std::string src = "this string is long enough to live on the heap and survive SSO truncation";
     const auto src_data_before = src.data();
 
-    base* p = f::emplace(move_observer::key, std::move(src));
+    base* p = f.emplace(move_observer::key, std::move(src));
     ASSERT_NE(p, nullptr);
     auto* m = dynamic_cast<move_observer*>(p);
     ASSERT_NE(m, nullptr);
@@ -522,11 +511,10 @@ TEST(StaticFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
 }
 
 TEST(StaticFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
-    clean<h16> guard;
-    using f = factory<h16>;
+    factory<h16> f;
 
     int x = 5;          // lvalue
-    base* p = f::emplace(h16::key, x, 2.5); // lvalue int + rvalue double
+    base* p = f.emplace(h16::key, x, 2.5); // lvalue int + rvalue double
     ASSERT_NE(p, nullptr);
     auto* h = dynamic_cast<h16*>(p);
     ASSERT_NE(h, nullptr);
@@ -539,16 +527,15 @@ TEST(StaticFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
 // ===========================================================================
 
 TEST(StaticFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
-    clean<b8> guard;
     b8::reset_counts();
-    using f = factory<b8>;
+    factory<b8> f;
 
-    base* p1 = f::emplace(b8::key, 1);
+    base* p1 = f.emplace(b8::key, 1);
     ASSERT_NE(p1, nullptr);
     EXPECT_EQ(b8::ctor_calls, 1);
     EXPECT_EQ(b8::dtor_calls, 0);
 
-    base* p2 = f::emplace(b8::key, 2);
+    base* p2 = f.emplace(b8::key, 2);
     ASSERT_NE(p2, nullptr);
     EXPECT_EQ(b8::ctor_calls, 2);
     EXPECT_EQ(b8::dtor_calls, 1);
@@ -559,14 +546,13 @@ TEST(StaticFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
 }
 
 TEST(StaticFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
-    clean<b8> guard;
     b8::reset_counts();
-    using f = factory<b8>;
+    factory<b8> f;
 
-    ASSERT_NE(f::emplace(b8::key, 10), nullptr);
-    ASSERT_NE(f::emplace(b8::key, 20), nullptr);
-    ASSERT_NE(f::emplace(b8::key, 30), nullptr);
-    auto* b = dynamic_cast<b8*>(f::emplace(b8::key, 40));
+    ASSERT_NE(f.emplace(b8::key, 10), nullptr);
+    ASSERT_NE(f.emplace(b8::key, 20), nullptr);
+    ASSERT_NE(f.emplace(b8::key, 30), nullptr);
+    auto* b = dynamic_cast<b8*>(f.emplace(b8::key, 40));
     ASSERT_NE(b, nullptr);
 
     EXPECT_EQ(b->value, 40);
@@ -574,18 +560,14 @@ TEST(StaticFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
     EXPECT_EQ(b8::dtor_calls, 3);
 }
 
-TEST(StaticFactoryLifecycle, CleanupBetweenTests_NoCrossContamination) {
-    // Two consecutive emplaces with different argument categories on the
-    // same key — make sure the destructor from the first call ran before
-    // the second ctor ran (no double-construct, no skipped destruct).
-    clean<c8> guard;
-    using f = factory<c8>;
+TEST(StaticFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
+    factory<c8> f;
 
-    base* p1 = f::emplace(c8::key, std::string("first"));
+    base* p1 = f.emplace(c8::key, std::string("first"));
     ASSERT_NE(p1, nullptr);
 
     std::string s = "second";
-    base* p2 = f::emplace(c8::key, s);
+    base* p2 = f.emplace(c8::key, s);
     ASSERT_NE(p2, nullptr);
 
     auto* c = dynamic_cast<c8*>(p2);
@@ -599,11 +581,10 @@ TEST(StaticFactoryLifecycle, CleanupBetweenTests_NoCrossContamination) {
 // ===========================================================================
 
 TEST(StaticFactoryBoundary, KeyZero_Works) {
-    clean<e8_zero> guard;
-    using f = factory<e8_zero>;
+    factory<e8_zero> f;
 
     std::string s = "edge";
-    base* p = f::emplace(e8_zero::key, s);
+    base* p = f.emplace(e8_zero::key, s);
     ASSERT_NE(p, nullptr);
     auto* e = dynamic_cast<e8_zero*>(p);
     ASSERT_NE(e, nullptr);
@@ -612,12 +593,11 @@ TEST(StaticFactoryBoundary, KeyZero_Works) {
 }
 
 TEST(StaticFactoryBoundary, KeyMaxUint8_Works) {
-    clean<f8_max> guard;
-    using fct = factory<f8_max>;
+    factory<f8_max> f;
 
     std::array<int, 64> a{};
     for (int i = 0; i < 64; ++i) a[i] = i * i;
-    base* p = fct::emplace(f8_max::key, a);
+    base* p = f.emplace(f8_max::key, a);
     ASSERT_NE(p, nullptr);
     auto* fp = dynamic_cast<f8_max*>(p);
     ASSERT_NE(fp, nullptr);
@@ -626,46 +606,31 @@ TEST(StaticFactoryBoundary, KeyMaxUint8_Works) {
 }
 
 TEST(StaticFactoryBoundary, SparseKey_SixtyThousand) {
-    clean<sparse16> guard;
-    using f = factory<sparse16>;
+    factory<sparse16> f;
 
-    // 60000 is far from any other key — exercises the FKS branch of
-    // optimal_mph as the chosen backend.
-    base* p = f::emplace(sparse16::key);
+    base* p = f.emplace(sparse16::key);
     ASSERT_NE(p, nullptr);
     EXPECT_STREQ(p->tag(), "sparse16");
 }
 
-TEST(StaticFactoryBoundary, MixedKeyWidths_8And16_NotMixable) {
-    // The factory deduces key_t from the first registered type. Mixing key
-    // widths in one factory would compile but the implicit conversion is
-    // surprising — this test documents that single-width factories are the
-    // intended use. We just verify two separate factories with different
-    // key widths can coexist in the same TU.
-    clean<a8, g16> guard;
-    using f8  = factory<a8>;
-    using f16 = factory<g16>;
+TEST(StaticFactoryBoundary, MixedKeyWidths_SeparateFactoriesCoexist) {
+    factory<a8>  f8;
+    factory<g16> f16;
 
-    EXPECT_NE(f8::emplace(a8::key),   nullptr);
-    EXPECT_NE(f16::emplace(g16::key), nullptr);
+    EXPECT_NE(f8.emplace(a8::key),   nullptr);
+    EXPECT_NE(f16.emplace(g16::key), nullptr);
 }
 
 TEST(StaticFactoryBoundary, LargeTypelist_SparseKeys) {
-    using fct = factory<
+    factory<
         seq_type<1>,   seq_type<17>,  seq_type<33>,  seq_type<49>,
         seq_type<65>,  seq_type<81>,  seq_type<97>,  seq_type<113>,
         seq_type<129>, seq_type<145>, seq_type<161>, seq_type<177>,
         seq_type<193>, seq_type<209>, seq_type<225>, seq_type<241>
-    >;
-    clean<
-        seq_type<1>,   seq_type<17>,  seq_type<33>,  seq_type<49>,
-        seq_type<65>,  seq_type<81>,  seq_type<97>,  seq_type<113>,
-        seq_type<129>, seq_type<145>, seq_type<161>, seq_type<177>,
-        seq_type<193>, seq_type<209>, seq_type<225>, seq_type<241>
-    > guard;
+    > f;
 
     for (std::uint16_t k : {1, 33, 97, 145, 241}) {
-        base* p = fct::emplace(k);
+        base* p = f.emplace(k);
         ASSERT_NE(p, nullptr) << "registered key " << k << " must dispatch";
         EXPECT_STREQ(p->tag(), "seq_type");
     }
@@ -676,54 +641,47 @@ TEST(StaticFactoryBoundary, LargeTypelist_SparseKeys) {
 // ===========================================================================
 
 TEST(StaticFactoryNullptr, UnknownKey_SmallSet_ReturnsNullptr) {
-    clean<a8, b8, c8> guard;
-    using f = factory<a8, b8, c8>;
+    factory<a8, b8, c8> f;
 
     // Registered keys: {2, 5, 7}.
-    EXPECT_EQ(f::emplace(static_cast<std::uint8_t>(99)),  nullptr);
-    EXPECT_EQ(f::emplace(static_cast<std::uint8_t>(0)),   nullptr);
-    EXPECT_EQ(f::emplace(static_cast<std::uint8_t>(255)), nullptr);
+    EXPECT_EQ(f.emplace(static_cast<std::uint8_t>(99)),  nullptr);
+    EXPECT_EQ(f.emplace(static_cast<std::uint8_t>(0)),   nullptr);
+    EXPECT_EQ(f.emplace(static_cast<std::uint8_t>(255)), nullptr);
 }
 
 TEST(StaticFactoryNullptr, UnknownKey_LargeSet_ReturnsNullptr) {
-    using fct = factory<
+    factory<
         seq_type<2>,  seq_type<18>, seq_type<34>, seq_type<50>,
         seq_type<66>, seq_type<82>, seq_type<98>, seq_type<114>
-    >;
-    clean<
-        seq_type<2>,  seq_type<18>, seq_type<34>, seq_type<50>,
-        seq_type<66>, seq_type<82>, seq_type<98>, seq_type<114>
-    > guard;
+    > f;
 
-    EXPECT_EQ(fct::emplace(static_cast<std::uint16_t>(999)), nullptr);
-    EXPECT_EQ(fct::emplace(static_cast<std::uint16_t>(0)),   nullptr);
+    EXPECT_EQ(f.emplace(static_cast<std::uint16_t>(999)), nullptr);
+    EXPECT_EQ(f.emplace(static_cast<std::uint16_t>(0)),   nullptr);
 }
 
 TEST(StaticFactoryNullptr, ArgMismatch_NoSlotConstructible) {
-    clean<a8, b8, c8> guard;
-    using f = factory<a8, b8, c8>;
+    factory<a8, b8, c8> f;
 
     // a8 takes no args, b8 takes int, c8 takes string. A double argument
     // matches no constructor — the fold's if-constexpr branches all return
     // false and the dispatch returns nullptr without constructing anything.
-    EXPECT_EQ(f::emplace(a8::key, 3.14), nullptr);
+    EXPECT_EQ(f.emplace(a8::key, 3.14), nullptr);
 }
 
 TEST(StaticFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
-    clean<a8, b8, c8> guard;
     b8::reset_counts();
-    using f = factory<a8, b8, c8>;
+    factory<a8, b8, c8> f;
 
     // b8::key resolves to a real slot, but b8 only has b8(int). Passing a
     // std::string finds no matching branch and the dispatch returns nullptr.
     // The b8 slot must remain untouched.
-    base* p = f::emplace(b8::key, std::string("not-an-int"));
+    base* p = f.emplace(b8::key, std::string("not-an-int"));
     EXPECT_EQ(p, nullptr);
     EXPECT_EQ(b8::ctor_calls, 0);
     EXPECT_EQ(b8::dtor_calls, 0);
 
     // Sanity: the correct signature still works after the failed attempt.
-    base* q = f::emplace(b8::key, 7);
+    base* q = f.emplace(b8::key, 7);
     ASSERT_NE(q, nullptr);
     EXPECT_STREQ(q->tag(), "b8");
     EXPECT_EQ(b8::ctor_calls, 1);
@@ -731,26 +689,14 @@ TEST(StaticFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
 }
 
 TEST(StaticFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
-    clean<b8> guard;
-    using f = factory<b8>;
+    factory<b8> f;
 
     // b8 takes int, not unique_ptr. Pass an rvalue unique_ptr — the
     // dispatch finds no matching ctor, returns nullptr, and *must not*
     // have moved-from our unique_ptr because no construction happened.
     auto up = std::make_unique<int>(99);
-    base* p = f::emplace(b8::key, std::move(up));
+    base* p = f.emplace(b8::key, std::move(up));
     EXPECT_EQ(p, nullptr);
     ASSERT_NE(up.get(), nullptr) << "failed dispatch must not consume the rvalue";
     EXPECT_EQ(*up, 99);
-}
-
-TEST(StaticFactoryNullptr, CallableWithoutInstance_RegressionGuard) {
-    // If the static keyword is ever removed from emplace, this TU fails
-    // to compile. The runtime body is incidental.
-    clean<a8> guard;
-    using f = factory<a8>;
-
-    base* p = f::emplace(a8::key);
-    ASSERT_NE(p, nullptr);
-    EXPECT_STREQ(p->tag(), "a8");
 }
