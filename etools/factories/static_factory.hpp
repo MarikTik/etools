@@ -69,29 +69,33 @@
 *   static constexpr auto value = T::key;
 * };
 *
-* using factory = etools::factories::static_factory<
+* using factory_t = etools::factories::static_factory<
 *   Base,
 *   key_extractor,
 *   etools::meta::typelist<A, B, C>
 * >;
 *
 * int main() {
+*   factory_t factory;   // owns storage for one A, one B, one C
+*
 *   // Default-construct A
-*   Base* pa = factory::emplace(A::key);
+*   Base* pa = factory.emplace(A::key);
 *
 *   // Construct B with an int argument
-*   Base* pb = factory::emplace(B::key, 42);
+*   Base* pb = factory.emplace(B::key, 42);
 *
 *   // Construct C with either copy- or move-constructed string
 *   std::string hello = "hello";
-*   Base* pc1 = factory::emplace(C::key, hello);        // copy ctor
-*   Base* pc2 = factory::emplace(C::key, std::string("hi")); // move ctor
+*   Base* pc1 = factory.emplace(C::key, hello);        // copy ctor
+*   Base* pc2 = factory.emplace(C::key, std::string("hi")); // move ctor
+*
+*   // All three objects are destroyed when `factory` goes out of scope.
 * }
 * @endcode
 *
 * At compile time:
-* - `factory::emplace(B::key, 42)` is accepted because `B` is constructible from `int`.
-* - If you attempted `factory::emplace(B::key, std::string("oops"))`, that overload
+* - `factory.emplace(B::key, 42)` is accepted because `B` is constructible from `int`.
+* - If you attempted `factory.emplace(B::key, std::string("oops"))`, that overload
 *   would compile to a no-op and return `nullptr` at runtime, because no `Derived`
 *   type is constructible from `(std::string)`.
 *
@@ -115,6 +119,7 @@
 #include "../meta/traits.hpp"
 #include "../memory/slot.hpp"
 #include "../hashing/optimal_mph.hpp"
+#include <tuple>
 #include <utility>
 namespace etools::factories{
     namespace details{
@@ -126,114 +131,146 @@ namespace etools::factories{
         * @tparam Extractor  `template<class T> struct Extractor { static constexpr auto value; };`
         * @tparam DerivedTypes... Registered derived types.
         *
+        * The factory **owns** the storage for its derived objects: one
+        * `etools::memory::slot<Derived>` per registered type, held in a tuple. Constructing
+        * an object via `emplace()` places it into the corresponding slot; the objects are
+        * destroyed when the factory is destroyed (RAII). There is no global/static storage.
+        *
         * @note Keys are extracted as `std::remove_cv_t<decltype(Extractor<T>::value)>`
         *       and must be pairwise-distinct. The lookup uses a minimal-overhead MPH.
+        * @note The factory is a pinned type: copy and move are both deleted (like
+        *       `std::mutex`). It owns live objects in-place, so relocating it is not
+        *       supported; hold it by reference, as a `static`, or on the stack.
         */
         template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
         class static_factory{
             /**
-            * @typedef sample_t 
-            * 
+            * @typedef sample_t
+            *
             * @brief The first derived type used to deduce key key type.
             */
             using sample_t = meta::nth_t<0, DerivedTypes...>;
-            
+
             /**
             * @typedef key_t
-            * 
+            *
             * @brief The type of the unique key for each derived type, deduced via Extractor metafunction.
             */
             using key_t = std::remove_cv_t<decltype(Extractor<sample_t>::value)>;
-            
+
             /**
             * @var capacity
-            *  
+            *
             * @brief The number of derived types in this registry.
             */
             static constexpr std::size_t capacity = sizeof...(DerivedTypes);
         public:
+            /**
+            * @brief Constructs an empty factory; every slot starts unoccupied.
+            */
+            static_factory() = default;
+
+            /// @brief Deleted copy constructor — the factory owns in-place storage.
+            static_factory(const static_factory&) = delete;
+            /// @brief Deleted copy assignment operator.
+            static_factory& operator=(const static_factory&) = delete;
+            /// @brief Deleted move constructor — pinned type; relocating live objects is unsupported.
+            static_factory(static_factory&&) = delete;
+            /// @brief Deleted move assignment operator.
+            static_factory& operator=(static_factory&&) = delete;
 
             /**
-            * @brief Construct/replace the instance associated with `key` in its preallocated slot.
-            * 
+            * @brief Construct/replace the instance associated with `key` in its owned slot.
+            *
             * @tparam Args Constructor argument types forwarded to the selected `Derived`.
-            * 
+            *
             * @param[in] key  The key corresponding to a registered derived type.
             * @param[in] args Constructor arguments forwarded to the selected `Derived`.
-            * 
-            * @return Pointer to the constructed `Base` subobject, or `nullptr` if `key` is not found.
-            * 
+            *
+            * @return Pointer to the constructed `Base` subobject, or `nullptr` if `key` is not
+            *         found, or if no registered type is constructible from `Args...`.
+            *
+            * @post On success the object lives in this factory's owned slot and is destroyed
+            *       when the factory is destroyed (or replaced by a later `emplace` on the same key).
+            *
             * @note O(1) runtime: one MPH lookup + one branchless dispatch.
-            * 
+            *
             * @warning `Extractor<T>::value` must be a usable constant expression and unique per `T`.
-            * @warning If an object with the same key is allocated already, it's destructor is called
-            *          And a new instance replaces it.
+            * @warning If an object with the same key already exists it is destroyed and replaced.
             */
             template<typename... Args>
-            [[nodiscard]] static Base* emplace(key_t key, Args&&... args) noexcept;
+            [[nodiscard]] Base* emplace(key_t key, Args&&... args) noexcept;
 
         private:
             /**
             * @brief Accessor for the canonical compile-time lookup artifact.
-            * 
+            *
             * @return `constexpr const&` to the MPH singleton for the extracted keys.
             */
             static constexpr const auto& mpht() noexcept;
-            
+
             /**
-            * @brief Try to emplace a specific derived type if its constructor matches `Args`.
+            * @brief Try to emplace into the `Index`-th owned slot if its type matches `Args`.
             *
-            * @tparam T   Target derived type to construct.
-            * @tparam Args Pack of argument types forwarded to `lot<T>::emplace`.
+            * @tparam Index Tuple index of the target derived type / slot.
+            * @tparam Args  Pack of argument types forwarded to `slot<T>::emplace`.
             *
-            * @param[out] out  Receives the constructed object pointer (as `Base*` ) if construction happens.
-            * @param[in]  args Constructor arguments perfectly forwarded to `T` .
+            * @param[out] out  Receives the constructed object pointer (as `Base*`) if construction happens.
+            * @param[in]  args Constructor arguments perfectly forwarded to the derived type.
             *
-            * @return `true` if `T` is constructible from `Args` and construction was attempted;
-            *         otherwise `false` (no attempt was made).
+            * @return `true` if the target type is constructible from `Args` and construction was
+            *         attempted; otherwise `false` (no attempt was made).
             *
-            * @note This function is SFINAE-guarded via `if constexpr` :
-            *       if `T` is not constructible from `Args`, the branch compiles to a no-op without
-            *       instantiating any ill-formed code paths. This prevents compilation failures when the
-            *       factory is called with argument lists that do not match all registered types.
+            * @note This function is SFINAE-guarded via `if constexpr`:
+            *       if the target type is not constructible from `Args`, the branch compiles to a
+            *       no-op without instantiating any ill-formed code paths. This prevents compilation
+            *       failures when the factory is called with argument lists that do not match all
+            *       registered types.
             *
             * @warning This function does not validate the key/index; callers should only invoke it
             *          from a validated dispatch path.
             */
-            template<typename T, typename... Args>
-            static bool try_emplace_if_constructible(Base*& out, Args&&... args) noexcept;
+            template<std::size_t Index, typename... Args>
+            bool try_emplace_if_constructible(Base*& out, Args&&... args) noexcept;
 
 
             /**
-            * @brief Dispatch to the `index`-th derived’s slot and `emplace` with perfect forwarding.
-            * 
+            * @brief Dispatch to the `index`-th owned slot and `emplace` with perfect forwarding.
+            *
             * @tparam Args Constructor argument types.
-            * 
+            *
             * @param[in] index Dense index in `[0..count-1]` returned by the MPH.
             * @param[in] args  Constructor arguments forwarded to the derived type.
-            * 
+            *
             * @return Pointer to the constructed base subobject, or `nullptr` if `index` is out of range.
             */
             template<typename... Args>
-            static Base* dispatch(std::size_t index, Args&&... args) noexcept;
-            
+            Base* dispatch(std::size_t index, Args&&... args) noexcept;
+
             /**
             * @brief Fold-based dispatch implementation over an index sequence.
-            * 
+            *
             * @tparam Args Constructor argument types.
             * @tparam Is   Index sequence `[0..count-1]`.
-            * 
+            *
             * @param[in] index Dense index in `[0..count-1]`.
             * @param[in] args  Constructor arguments forwarded to the derived type.
-            * 
+            *
             * @return Pointer to the constructed base subobject, or `nullptr` if not matched.
-            * 
+            *
             * @note Compile-time cost is linear in the number of registered types for each distinct
-            *       `Args...` signature. Use `meta::pack_at_t` instead of a recursive `nth_t` to avoid
-            *       quadratic meta-work.
+            *       `Args...` signature.
             */
             template<typename... Args, std::size_t... Is>
-            static Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
+            Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
+
+            /**
+            * @brief Owned storage: one slot per registered derived type, in declaration order.
+            *
+            * The MPH maps a key to a dense index in declaration order, which is exactly the
+            * tuple index, so `std::get<index>(_slots)` selects the right slot.
+            */
+            std::tuple<memory::slot<DerivedTypes>...> _slots{};
 
             static_assert((not std::is_abstract_v<DerivedTypes> && ...), "DerivedType can't be abstract because there is no way to construct it.");
         };
