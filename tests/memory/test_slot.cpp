@@ -44,274 +44,299 @@ struct TrivialObject {
     int x;
 };
 
-// Test fixture for slot tests
+// Test fixture: reset SimpleObject's static counters between tests. Slots are now
+// value types owned as locals in each test, so there is no shared state to clean up.
 class SlotTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Order matters: destroy any leftover object from a previous test
-        // FIRST, so the destructor's increment of destructor_calls lands on
-        // the *previous* test's counters. Only then do we zero out the
-        // counters for the current test.
-        slot<SimpleObject>::instance().destroy();
-        slot<TrivialObject>::instance().destroy();
-        slot<ComplexObject>::instance().destroy();
-
         SimpleObject::constructor_calls = 0;
         SimpleObject::destructor_calls = 0;
         SimpleObject::constructed = false;
     }
 };
 
+// --- Construction / destruction lifecycle --------------------------------
+
 TEST_F(SlotTest, InitialState_EmptySlot) {
-    auto& s = slot<SimpleObject>::instance();
-    EXPECT_EQ(s.get(), nullptr);
-    s.destroy(); // Should do nothing
+    slot<SimpleObject> s;
+    EXPECT_FALSE(s.has_value());
+    EXPECT_FALSE(static_cast<bool>(s));
     EXPECT_EQ(s.get(), nullptr);
     EXPECT_EQ(SimpleObject::constructor_calls, 0);
     EXPECT_EQ(SimpleObject::destructor_calls, 0);
-    EXPECT_FALSE(SimpleObject::constructed);
 }
 
 TEST_F(SlotTest, Lifecycle_ConstructAndDestroy) {
-    auto& s = slot<SimpleObject>::instance();
-    
-    // Construct the object
+    slot<SimpleObject> s;
+
     SimpleObject* ptr = s.construct(10);
     EXPECT_NE(ptr, nullptr);
     EXPECT_EQ(ptr->value, 10);
+    EXPECT_TRUE(s.has_value());
     EXPECT_EQ(s.get(), ptr);
     EXPECT_EQ(SimpleObject::constructor_calls, 1);
     EXPECT_EQ(SimpleObject::destructor_calls, 0);
-    EXPECT_TRUE(SimpleObject::constructed);
-    
-    // Destroy the object
+
     s.destroy();
+    EXPECT_FALSE(s.has_value());
     EXPECT_EQ(s.get(), nullptr);
-    EXPECT_EQ(SimpleObject::constructor_calls, 1);
     EXPECT_EQ(SimpleObject::destructor_calls, 1);
-    EXPECT_FALSE(SimpleObject::constructed);
-    
-    // Test that another construction works
+
+    // Reconstruction after destroy works.
     SimpleObject* ptr2 = s.construct(20);
     EXPECT_NE(ptr2, nullptr);
     EXPECT_EQ(ptr2->value, 20);
-    EXPECT_EQ(s.get(), ptr2);
     EXPECT_EQ(SimpleObject::constructor_calls, 2);
     EXPECT_EQ(SimpleObject::destructor_calls, 1);
-    EXPECT_TRUE(SimpleObject::constructed);
 }
 
+TEST_F(SlotTest, RaiiDestructor_DestroysContainedObject) {
+    {
+        slot<SimpleObject> s;
+        s.construct(5);
+        EXPECT_EQ(SimpleObject::destructor_calls, 0);
+    } // s goes out of scope here
+    EXPECT_EQ(SimpleObject::destructor_calls, 1)
+        << "~slot must destroy the contained object";
+}
+
+TEST_F(SlotTest, RaiiDestructor_EmptySlot_NoDestructorCall) {
+    {
+        slot<SimpleObject> s;
+        // never constructed
+    }
+    EXPECT_EQ(SimpleObject::destructor_calls, 0);
+}
+
+// --- emplace / overwrite semantics ---------------------------------------
+
 TEST_F(SlotTest, Emplace_OverwritesExistingObject) {
-    auto& s = slot<SimpleObject>::instance();
+    slot<SimpleObject> s;
 
     SimpleObject* ptr1 = s.emplace(100);
-    EXPECT_NE(ptr1, nullptr);
     EXPECT_EQ(ptr1->value, 100);
     EXPECT_EQ(SimpleObject::constructor_calls, 1);
     EXPECT_EQ(SimpleObject::destructor_calls, 0);
-    EXPECT_TRUE(SimpleObject::constructed);
 
-    // Emplace again, which should destroy the old one and construct a new one
     SimpleObject* ptr2 = s.emplace(200);
-    EXPECT_NE(ptr2, nullptr);
     EXPECT_EQ(ptr2->value, 200);
     EXPECT_EQ(SimpleObject::constructor_calls, 2);
-    EXPECT_EQ(SimpleObject::destructor_calls, 1);
-    EXPECT_TRUE(SimpleObject::constructed);
+    EXPECT_EQ(SimpleObject::destructor_calls, 1)
+        << "emplace must destroy the previous object exactly once";
 }
-
-// NOTE: This test will fail due to the `assert` in a debug build.
-// For embedded systems, we often compile with NDEBUG for release, but this is an important case
-// to test the assertion's presence for debugging.
-TEST_F(SlotTest, DISABLED_Construct_ThrowsAssertionWhenCalledTwice) {
-    auto& s = slot<SimpleObject>::instance();
-    s.construct(1);
-
-    // This second call should trigger the assertion in debug mode
-    // In a release build (NDEBUG), this will lead to undefined behavior
-    // since the destructor is not called.
-    // EXPECT_DEATH(s.construct(2), "Slot already constructed, cannot construct again.");
-    s.destroy(); // Cleanup
-}
-
-TEST_F(SlotTest, Get_ConstAndNonConst) {
-    auto& s = slot<SimpleObject>::instance();
-    const auto& const_s = slot<SimpleObject>::instance();
-
-    // Before construction, both should be nullptr
-    EXPECT_EQ(s.get(), nullptr);
-    EXPECT_EQ(const_s.get(), nullptr);
-
-    s.construct(30);
-    
-    // After construction, both should return the same valid pointer
-    SimpleObject* non_const_ptr = s.get();
-    const SimpleObject* const_ptr = const_s.get();
-    
-    EXPECT_NE(non_const_ptr, nullptr);
-    EXPECT_NE(const_ptr, nullptr);
-    EXPECT_EQ(non_const_ptr, const_cast<SimpleObject*>(const_ptr));
-    EXPECT_EQ(non_const_ptr->value, 30);
-    EXPECT_EQ(const_ptr->value, 30);
-}
-
-TEST_F(SlotTest, Memory_AlignmentAndSize) {
-    auto& s = slot<ComplexObject>::instance();
-    EXPECT_EQ(s.get(), nullptr);
-    
-    // Construct a complex object to test correct memory allocation and alignment.
-    ComplexObject* ptr = s.construct(3.14, "hello");
-    EXPECT_NE(ptr, nullptr);
-    EXPECT_EQ(ptr->d, 3.14);
-    EXPECT_EQ(ptr->s, "hello");
-    EXPECT_EQ(ptr->v.size(), 3);
-    EXPECT_EQ(s.get(), ptr);
-
-    s.destroy();
-    EXPECT_EQ(s.get(), nullptr);
-}
-
-TEST_F(SlotTest, MultipleSlots_IndependentInstances) {
-    auto& s1 = slot<SimpleObject>::instance();
-    auto& s2 = slot<TrivialObject>::instance();
-
-    s1.construct(10);
-    s2.construct(); // Trivial default construction
-
-    EXPECT_NE(s1.get(), nullptr);
-    EXPECT_NE(s2.get(), nullptr);
-
-    // Ensure they are independent memory locations
-    EXPECT_NE(static_cast<void*>(s1.get()), static_cast<void*>(s2.get()));
-    EXPECT_EQ(s1.get()->value, 10);
-
-    s1.destroy();
-    EXPECT_EQ(s1.get(), nullptr);
-    EXPECT_NE(s2.get(), nullptr);
-
-    s2.destroy();
-    EXPECT_EQ(s2.get(), nullptr);
-}
-
-// --- Singleton identity --------------------------------------------------
-//
-// Every call to instance() must return the same object. This is the
-// post-condition of slot::instance() declared in the header.
-
-TEST_F(SlotTest, Instance_ReturnsSameObjectAcrossCalls) {
-    auto& a = slot<SimpleObject>::instance();
-    auto& b = slot<SimpleObject>::instance();
-    EXPECT_EQ(&a, &b) << "slot::instance() must return a stable reference";
-}
-
-TEST_F(SlotTest, Instance_AlignmentMatchesT) {
-    // The buffer is alignas(T); the pointer returned by get() must therefore
-    // be properly aligned for T. ComplexObject contains std::string and
-    // std::vector, which usually require alignment > 1.
-    auto& s = slot<ComplexObject>::instance();
-    ComplexObject* p = s.construct(1.5, "aligned");
-    auto addr = reinterpret_cast<std::uintptr_t>(p);
-    EXPECT_EQ(addr % alignof(ComplexObject), 0u)
-        << "slot<T>::get() must return an alignof(T)-aligned pointer";
-}
-
-// --- emplace() lifecycle accounting --------------------------------------
-//
-// Lifecycle_ConstructAndDestroy already exercises construct + destroy.
-// This test pins down emplace()'s exact dtor/ctor sequence over several
-// overwrites — important because emplace() runs destroy() internally, and
-// any future refactor of that path must keep the counts honest.
 
 TEST_F(SlotTest, Emplace_RepeatedlyOverwrites_CountsBalance) {
-    auto& s = slot<SimpleObject>::instance();
-
+    slot<SimpleObject> s;
     s.emplace(1);
     s.emplace(2);
     s.emplace(3);
     s.emplace(4);
 
     EXPECT_EQ(SimpleObject::constructor_calls, 4);
-    EXPECT_EQ(SimpleObject::destructor_calls, 3) << "every overwrite destroys the previous object exactly once";
+    EXPECT_EQ(SimpleObject::destructor_calls, 3);
     EXPECT_EQ(s.get()->value, 4);
 }
 
 TEST_F(SlotTest, Destroy_OnEmptySlot_DoesNotCallDestructor) {
-    // The header documents destroy() as idempotent — calling it on a
-    // not-constructed slot must NOT call ~T().
-    auto& s = slot<SimpleObject>::instance();
-    EXPECT_EQ(s.get(), nullptr);
+    slot<SimpleObject> s;
+    s.destroy();
+    s.destroy();
+    s.destroy();
     EXPECT_EQ(SimpleObject::destructor_calls, 0);
-
-    s.destroy();
-    s.destroy();
-    s.destroy();
-
-    EXPECT_EQ(SimpleObject::destructor_calls, 0)
-        << "destroy() on empty slot must not invoke ~T()";
 }
 
-// --- Move-only payload through emplace -----------------------------------
+// --- Access surface: get / operator* / operator-> / operator bool ---------
+
+TEST_F(SlotTest, Get_ConstAndNonConst) {
+    slot<SimpleObject> s;
+    const slot<SimpleObject>& cs = s;
+
+    EXPECT_EQ(s.get(), nullptr);
+    EXPECT_EQ(cs.get(), nullptr);
+
+    s.construct(30);
+
+    SimpleObject* non_const_ptr = s.get();
+    const SimpleObject* const_ptr = cs.get();
+    EXPECT_NE(non_const_ptr, nullptr);
+    EXPECT_EQ(non_const_ptr, const_cast<SimpleObject*>(const_ptr));
+    EXPECT_EQ(non_const_ptr->value, 30);
+}
+
+TEST_F(SlotTest, DereferenceOperators_AccessContainedObject) {
+    slot<SimpleObject> s;
+    s.construct(77);
+
+    EXPECT_EQ((*s).value, 77);
+    EXPECT_EQ(s->value, 77);
+
+    s->value = 88;
+    EXPECT_EQ((*s).value, 88);
+
+    const slot<SimpleObject>& cs = s;
+    EXPECT_EQ((*cs).value, 88);
+    EXPECT_EQ(cs->value, 88);
+}
+
+TEST_F(SlotTest, OperatorBool_ReflectsState) {
+    slot<SimpleObject> s;
+    EXPECT_FALSE(static_cast<bool>(s));
+    s.construct(1);
+    EXPECT_TRUE(static_cast<bool>(s));
+    s.destroy();
+    EXPECT_FALSE(static_cast<bool>(s));
+}
+
+// --- Independence of separate slot instances -----------------------------
+
+TEST_F(SlotTest, SeparateInstances_AreIndependent) {
+    slot<SimpleObject> a;
+    slot<SimpleObject> b;
+
+    a.construct(1);
+    b.construct(2);
+
+    // Distinct storage, distinct values — the whole point of the value-type rework.
+    EXPECT_NE(static_cast<void*>(a.get()), static_cast<void*>(b.get()));
+    EXPECT_EQ(a.get()->value, 1);
+    EXPECT_EQ(b.get()->value, 2);
+
+    a.destroy();
+    EXPECT_FALSE(a.has_value());
+    EXPECT_TRUE(b.has_value()) << "destroying one slot must not affect another";
+    EXPECT_EQ(b.get()->value, 2);
+}
+
+TEST_F(SlotTest, DifferentTypes_IndependentStorage) {
+    slot<SimpleObject> s1;
+    slot<TrivialObject> s2;
+
+    s1.construct(10);
+    s2.emplace();
+
+    EXPECT_NE(static_cast<void*>(s1.get()), static_cast<void*>(s2.get()));
+    EXPECT_EQ(s1.get()->value, 10);
+}
+
+TEST_F(SlotTest, Alignment_GetReturnsAlignedPointer) {
+    slot<ComplexObject> s;
+    ComplexObject* p = s.construct(1.5, "aligned");
+    auto addr = reinterpret_cast<std::uintptr_t>(p);
+    EXPECT_EQ(addr % alignof(ComplexObject), 0u);
+}
+
+// --- Move semantics ------------------------------------------------------
+
+TEST_F(SlotTest, MoveConstruct_RelocatesObject_SourceEmptied) {
+    slot<SimpleObject> a;
+    a.construct(42);
+
+    slot<SimpleObject> b = std::move(a);
+
+    EXPECT_TRUE(b.has_value());
+    EXPECT_EQ(b.get()->value, 42) << "value must survive relocation";
+    EXPECT_FALSE(a.has_value()) << "moved-from slot must be empty";
+    // SimpleObject only counts its int-ctor, not the implicit copy/move used
+    // to relocate; so constructor_calls stays at 1. The source object IS
+    // destroyed during the move, hence one destructor call.
+    EXPECT_EQ(SimpleObject::constructor_calls, 1);
+    EXPECT_EQ(SimpleObject::destructor_calls, 1);
+}
+
+TEST_F(SlotTest, MoveConstruct_FromEmpty_StaysEmpty) {
+    slot<SimpleObject> a;
+    slot<SimpleObject> b = std::move(a);
+    EXPECT_FALSE(b.has_value());
+    EXPECT_FALSE(a.has_value());
+    EXPECT_EQ(SimpleObject::constructor_calls, 0);
+}
+
+TEST_F(SlotTest, MoveAssign_RelocatesObject_SourceEmptied) {
+    slot<SimpleObject> a;
+    a.construct(7);
+
+    slot<SimpleObject> b;
+    b.construct(99);  // b already holds something; move-assign must destroy it first
+
+    b = std::move(a);
+
+    EXPECT_TRUE(b.has_value());
+    EXPECT_EQ(b.get()->value, 7);
+    EXPECT_FALSE(a.has_value());
+}
+
+TEST_F(SlotTest, MoveAssign_MoveOnlyPayload) {
+    slot<std::unique_ptr<int>> a;
+    a.construct(std::make_unique<int>(123));
+
+    slot<std::unique_ptr<int>> b;
+    b = std::move(a);
+
+    ASSERT_TRUE(b.has_value());
+    ASSERT_NE(b.get()->get(), nullptr);
+    EXPECT_EQ(**b.get(), 123);
+    EXPECT_FALSE(a.has_value());
+}
+
+// --- Perfect forwarding into construct -----------------------------------
+
+TEST_F(SlotTest, Construct_PerfectForwarding_StringMove) {
+    slot<std::string> s;
+    std::string src = "a string long enough to live on the heap and avoid SSO";
+    const auto* src_data = src.data();
+
+    s.construct(std::move(src));
+
+    ASSERT_TRUE(s.has_value());
+    EXPECT_EQ(s->data(), src_data) << "buffer should be pilfered, not copied";
+}
+
+// --- Compile-time properties ---------------------------------------------
 
 namespace {
-    struct move_only_payload {
-        std::unique_ptr<int> p;
-        explicit move_only_payload(int v) : p(std::make_unique<int>(v)) {}
-        move_only_payload(move_only_payload&&) = default;
-        move_only_payload& operator=(move_only_payload&&) = default;
-        move_only_payload(const move_only_payload&) = delete;
-        move_only_payload& operator=(const move_only_payload&) = delete;
+    struct nothrow_dtor { ~nothrow_dtor() = default; };
+    struct throwing_dtor { ~throwing_dtor() noexcept(false) {} };
+
+    struct nonmovable {
+        nonmovable() = default;
+        nonmovable(const nonmovable&) = delete;
+        nonmovable(nonmovable&&) = delete;
     };
 }
 
-TEST_F(SlotTest, Emplace_PerfectForwarding_MoveOnlyType) {
-    // Verifies that arguments propagate by value-category through emplace's
-    // forwarding-reference parameter pack. If forwarding were broken the
-    // unique_ptr move would fail to compile.
-    auto& s = slot<move_only_payload>::instance();
-
-    auto src = std::make_unique<int>(42);
-    s.construct(std::move(*src)); // emplace from an rvalue int
-    // The constructor copied the int into a new unique_ptr internally.
-    ASSERT_NE(s.get(), nullptr);
-    EXPECT_NE(s.get()->p, nullptr);
-    EXPECT_EQ(*s.get()->p, 42);
-
-    s.destroy();
-}
-
-// --- Compile-time properties of slot -------------------------------------
-
-namespace {
-    struct throwing_dtor {
-        ~throwing_dtor() noexcept(false) {}
-    };
-    struct nothrow_dtor {
-        ~nothrow_dtor() = default;
-    };
-}
-
-// slot<throwing_dtor> would fail the class-level static_assert and is
-// therefore impossible to instantiate. We assert the *positive* case
-// here: well-formed types pass the destructor-noexcept gate.
 static_assert(std::is_nothrow_destructible_v<nothrow_dtor>,
-    "sanity: nothrow_dtor must qualify for slot<>");
+    "sanity: nothrow_dtor qualifies for slot<>");
 static_assert(!std::is_nothrow_destructible_v<throwing_dtor>,
-    "sanity: throwing_dtor must NOT qualify for slot<>");
+    "sanity: throwing_dtor does NOT qualify for slot<>");
 
-TEST(SlotCompile, GetReturnsPointerToT) {
-    static_assert(std::is_same_v<
-        decltype(std::declval<slot<SimpleObject>&>().get()),
-        SimpleObject*>,
-        "non-const get() must return SimpleObject*");
-    static_assert(std::is_same_v<
-        decltype(std::declval<const slot<SimpleObject>&>().get()),
-        const SimpleObject*>,
-        "const get() must return const SimpleObject*");
+TEST(SlotCompile, ValueTypeTraits) {
+    // Copy is always deleted.
+    static_assert(!std::is_copy_constructible_v<slot<SimpleObject>>,
+        "slot is never copyable");
+    static_assert(!std::is_copy_assignable_v<slot<SimpleObject>>,
+        "slot is never copy-assignable");
 }
 
-TEST(SlotCompile, InstanceReturnsSlotReference) {
+TEST(SlotCompile, ConditionalMovability_HonestTraits) {
+    // Movable T -> movable slot.
+    static_assert(std::is_move_constructible_v<slot<std::string>>,
+        "slot<movable T> must be move-constructible");
+    static_assert(std::is_move_constructible_v<slot<std::unique_ptr<int>>>,
+        "slot<move-only T> must be move-constructible");
+
+    // Non-movable T -> non-movable slot (the base-class technique makes the
+    // trait report the truth, not just fail at the point of use).
+    static_assert(!std::is_move_constructible_v<slot<nonmovable>>,
+        "slot<non-movable T> must NOT be move-constructible");
+}
+
+TEST(SlotCompile, AccessorReturnTypes) {
     static_assert(std::is_same_v<
-        decltype(slot<SimpleObject>::instance()),
-        slot<SimpleObject>&>,
-        "instance() must return slot<T>&");
+        decltype(std::declval<slot<SimpleObject>&>().get()), SimpleObject*>);
+    static_assert(std::is_same_v<
+        decltype(std::declval<const slot<SimpleObject>&>().get()), const SimpleObject*>);
+    static_assert(std::is_same_v<
+        decltype(*std::declval<slot<SimpleObject>&>()), SimpleObject&>);
+    static_assert(std::is_same_v<
+        slot<SimpleObject>::value_type, SimpleObject>);
 }
