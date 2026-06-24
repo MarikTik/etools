@@ -117,9 +117,10 @@
 #define ETOOLS_FACTORIES_STATIC_FACTORY_HPP_
 #include "../meta/typelist.hpp"
 #include "../meta/traits.hpp"
-#include "../memory/slot.hpp"
 #include "../hashing/optimal_mph.hpp"
+#include <optional>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 namespace etools::factories{
     namespace details{
@@ -132,8 +133,8 @@ namespace etools::factories{
         * @tparam DerivedTypes... Registered derived types.
         *
         * The factory **owns** the storage for its derived objects: one
-        * `etools::memory::slot<Derived>` per registered type, held in a tuple. Constructing
-        * an object via `emplace()` places it into the corresponding slot; the objects are
+        * `std::optional<Derived>` per registered type, held in a tuple. Constructing
+        * an object via `emplace()` places it into the corresponding cell; the objects are
         * destroyed when the factory is destroyed (RAII). There is no global/static storage.
         *
         * @note Keys are extracted as `std::remove_cv_t<decltype(Extractor<T>::value)>`
@@ -212,8 +213,8 @@ namespace etools::factories{
             /**
             * @brief Try to emplace into the `Index`-th owned slot if its type matches `Args`.
             *
-            * @tparam Index Tuple index of the target derived type / slot.
-            * @tparam Args  Pack of argument types forwarded to `slot<T>::emplace`.
+            * @tparam Index Tuple index of the target derived type / cell.
+            * @tparam Args  Pack of argument types forwarded to `std::optional<T>::emplace`.
             *
             * @param[out] out  Receives the constructed object pointer (as `Base*`) if construction happens.
             * @param[in]  args Constructor arguments perfectly forwarded to the derived type.
@@ -265,14 +266,17 @@ namespace etools::factories{
             Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
 
             /**
-            * @brief Owned storage: one slot per registered derived type, in declaration order.
+            * @brief Owned storage: one cell per registered derived type, in declaration order.
             *
             * The MPH maps a key to a dense index in declaration order, which is exactly the
-            * tuple index, so `std::get<index>(_slots)` selects the right slot.
+            * tuple index, so `std::get<index>(_slots)` selects the right cell.
             */
-            std::tuple<memory::slot<DerivedTypes>...> _slots{};
+            std::tuple<std::optional<DerivedTypes>...> _slots{};
 
             static_assert((not std::is_abstract_v<DerivedTypes> && ...), "DerivedType can't be abstract because there is no way to construct it.");
+            static_assert((std::is_nothrow_destructible_v<DerivedTypes> && ...),
+                "DerivedType must be nothrow-destructible; the factory destroys owned objects "
+                "during teardown and this code path is noexcept.");
         };
     }
 
