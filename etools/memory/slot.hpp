@@ -193,6 +193,7 @@ namespace etools::memory {
     * - `operator*` / `operator->` have a precondition that the slot is engaged; they
     *   assert in debug builds. Check `has_value()` (or `operator bool`) first when the
     *   state is unknown.
+    * 
     * - This class is NOT thread-safe.
     *
     * @note Move semantics diverge from `std::optional`: a moved-from `slot` is left **empty**
