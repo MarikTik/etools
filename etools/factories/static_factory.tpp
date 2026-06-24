@@ -48,7 +48,7 @@ namespace etools::factories::details{
         //   - lvalue arg  -> decltype(std::forward<Arg>(arg)) is T&   (cannot bind to T&&)
         //   - rvalue arg  -> decltype(std::forward<Arg>(arg)) is T&&  (can bind to T&&)
         if constexpr (std::is_constructible_v<target_t, Args&&...>) {
-            out = std::get<Index>(_slots).emplace(std::forward<Args>(args)...);
+            out = &std::get<Index>(_slots).emplace(std::forward<Args>(args)...);
             return true;
         } else {
             (void)out;
