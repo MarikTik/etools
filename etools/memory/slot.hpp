@@ -24,7 +24,7 @@
 * As it stands, `slot<T>` is largely `std::optional<T>` with relocate-on-move semantics
 * (a moved-from slot is left *empty*) and a nothrow-destructible requirement. If all you
 * need today is an in-place optional cell, prefer `std::optional` — it is the better-tested,
-* zero-maintenance choice, and `static_factory` uses it for exactly that reason.
+* zero-maintenance choice, and `dispatch_factory` uses it for exactly that reason.
 *
 * `slot` is kept as an in-house primitive because it is really a **blueprint for a future
 * pool slot**: the cell type a fixed-capacity memory pool would compose. A pool tracks
@@ -155,7 +155,7 @@ namespace etools::memory {
         * When `T` is move-constructible the primary template inherits `slot_base`'s
         * user-provided move members unchanged. When `T` is not move-constructible the
         * specialization deletes the move special members, so `std::is_move_constructible_v`
-        * reports the truth for `slot<T>` and for any aggregate (e.g. `static_factory`) that
+        * reports the truth for `slot<T>` and for any aggregate (e.g. a future pool cell) that
         * contains one.
         *
         * @tparam T        The contained type.

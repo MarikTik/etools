@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /**
-* @file static_factory.tpp
+* @file dispatch_factory.tpp
 *
-* @brief Definition of static_factory.hpp methods.
+* @brief Definition of dispatch_factory.hpp methods.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -13,14 +13,14 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
-#ifndef ETOOLS_FACTORIES_STATIC_FACTORY_TPP_
-#define ETOOLS_FACTORIES_STATIC_FACTORY_TPP_
-#include "static_factory.hpp"
+#ifndef ETOOLS_FACTORIES_DISPATCH_FACTORY_TPP_
+#define ETOOLS_FACTORIES_DISPATCH_FACTORY_TPP_
+#include "dispatch_factory.hpp"
 #include <tuple>
 namespace etools::factories::details{
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
-    inline Base* static_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args) noexcept
+    inline Base* dispatch_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args) noexcept
     {
         // `table` is the constexpr MPH singleton; `table(key)` is an O(1) runtime lookup.
         constexpr const auto& table = mpht();
@@ -32,7 +32,7 @@ namespace etools::factories::details{
 
 
     template <typename Base, template<typename> typename Extractor,typename... DerivedTypes>
-    constexpr const auto &static_factory<Base, Extractor, DerivedTypes...>::mpht() noexcept {
+    constexpr const auto &dispatch_factory<Base, Extractor, DerivedTypes...>::mpht() noexcept {
         using table_t = etools::hashing::optimal_mph<key_t>;
         return table_t::template instance<
         static_cast<key_t>(Extractor<DerivedTypes>::value)...
@@ -41,7 +41,7 @@ namespace etools::factories::details{
 
     template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template<std::size_t Index, typename... Args>
-    inline bool static_factory<Base, Extractor, DerivedTypes...>::
+    inline bool dispatch_factory<Base, Extractor, DerivedTypes...>::
     try_emplace_if_constructible(Base*& out, Args&&... args) noexcept {
         using target_t = meta::nth_t<Index, DerivedTypes...>;
         // Preserve the value category of each argument expression in the probe:
@@ -58,7 +58,7 @@ namespace etools::factories::details{
 
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args, std::size_t... Is>
-    Base* static_factory<Base, Extractor, DerivedTypes...>
+    Base* dispatch_factory<Base, Extractor, DerivedTypes...>
     ::dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept
     {
         Base* result = nullptr;
@@ -74,7 +74,7 @@ namespace etools::factories::details{
 
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
-    Base *static_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args) noexcept{
+    Base *dispatch_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args) noexcept{
 
         // Compilation bottleneck in `dispatch_fold` for very large amount of keys ( >2000 )
         // due to call to nth_t. For k different constructors and n keys, the expected
@@ -87,4 +87,4 @@ namespace etools::factories::details{
 
 
 } // namespace etools::factories::details
-#endif //ETOOLS_FACTORIES_STATIC_FACTORY_TPP_
+#endif //ETOOLS_FACTORIES_DISPATCH_FACTORY_TPP_

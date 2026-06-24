@@ -17,5 +17,5 @@
 */
 #ifndef ETOOLS_FACTORIES_HPP_
 #define ETOOLS_FACTORIES_HPP_
-#include "static_factory.hpp"
+#include "dispatch_factory.hpp"
 #endif //ETOOLS_FACTORIES_HPP_

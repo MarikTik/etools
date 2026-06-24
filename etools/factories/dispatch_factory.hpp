@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /**
-* @file static_factory.hpp
+* @file dispatch_factory.hpp
 *
 * @ingroup etools_factories etools::factories
 *
@@ -29,12 +29,12 @@
 * - **Compile-time:** Roughly O(N × K), where N is the number of registered types
 *   and K is the number of distinct constructor argument signatures seen.
 * ## Components
-* - `etools::factories::static_factory<Base, Extractor, DerivedTypes...>` – public facade.
-* - `etools::factories::details::static_factory<...>` – internal implementation.
+* - `etools::factories::dispatch_factory<Base, Extractor, DerivedTypes...>` – public facade.
+* - `etools::factories::details::dispatch_factory<...>` – internal implementation.
 *
 * ## Example
 * @code
-* #include <etools/factories/static_factory.hpp>
+* #include <etools/factories/dispatch_factory.hpp>
 * #include <etools/meta/typelist.hpp>
 *
 * struct Base {
@@ -69,7 +69,7 @@
 *   static constexpr auto value = T::key;
 * };
 *
-* using factory_t = etools::factories::static_factory<
+* using factory_t = etools::factories::dispatch_factory<
 *   Base,
 *   key_extractor,
 *   etools::meta::typelist<A, B, C>
@@ -113,8 +113,8 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
-#ifndef ETOOLS_FACTORIES_STATIC_FACTORY_HPP_
-#define ETOOLS_FACTORIES_STATIC_FACTORY_HPP_
+#ifndef ETOOLS_FACTORIES_DISPATCH_FACTORY_HPP_
+#define ETOOLS_FACTORIES_DISPATCH_FACTORY_HPP_
 #include "../meta/typelist.hpp"
 #include "../meta/traits.hpp"
 #include "../hashing/optimal_mph.hpp"
@@ -125,7 +125,7 @@
 namespace etools::factories{
     namespace details{
         /**
-        * @class static_factory
+        * @class dispatch_factory
         * @brief Implementation of a compile-time registry for constructing derived types by key.
         *
         * @tparam Base       Polymorphic base type.
@@ -144,7 +144,7 @@ namespace etools::factories{
         *       supported; hold it by reference, as a `static`, or on the stack.
         */
         template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
-        class static_factory{
+        class dispatch_factory{
             /**
             * @typedef sample_t
             *
@@ -169,16 +169,16 @@ namespace etools::factories{
             /**
             * @brief Constructs an empty factory; every slot starts unoccupied.
             */
-            static_factory() = default;
+            dispatch_factory() = default;
 
             /// @brief Deleted copy constructor — the factory owns in-place storage.
-            static_factory(const static_factory&) = delete;
+            dispatch_factory(const dispatch_factory&) = delete;
             /// @brief Deleted copy assignment operator.
-            static_factory& operator=(const static_factory&) = delete;
+            dispatch_factory& operator=(const dispatch_factory&) = delete;
             /// @brief Deleted move constructor — pinned type; relocating live objects is unsupported.
-            static_factory(static_factory&&) = delete;
+            dispatch_factory(dispatch_factory&&) = delete;
             /// @brief Deleted move assignment operator.
-            static_factory& operator=(static_factory&&) = delete;
+            dispatch_factory& operator=(dispatch_factory&&) = delete;
 
             /**
             * @brief Construct/replace the instance associated with `key` in its owned slot.
@@ -289,15 +289,15 @@ namespace etools::factories{
     * @note You may pass a `meta::typelist<...>` as the third template parameter; it is unwrapped.
     */
     template<typename Base, template<typename> typename Exctractor, typename... DerivedTypes>
-    class static_factory : public details::static_factory<Base, Exctractor, DerivedTypes...>{};
+    class dispatch_factory : public details::dispatch_factory<Base, Exctractor, DerivedTypes...>{};
 
     /**
     * @brief Typelist adapter specialization.
     */
     template<typename Base, template<typename> typename Extractor, typename...DerivedTypes>
-    class static_factory<Base, Extractor, meta::typelist<DerivedTypes...>> : public details::static_factory<Base, Extractor, DerivedTypes...>{};
+    class dispatch_factory<Base, Extractor, meta::typelist<DerivedTypes...>> : public details::dispatch_factory<Base, Extractor, DerivedTypes...>{};
             
 } // namespace etools::factories
 
-#include "static_factory.tpp"
-#endif //ETOOLS_FACTORIES_STATIC_FACTORY_HPP_
+#include "dispatch_factory.tpp"
+#endif //ETOOLS_FACTORIES_DISPATCH_FACTORY_HPP_
