@@ -7,12 +7,12 @@
 #include <type_traits>
 #include <utility>
 
-#include <etools/factories/static_factory.hpp>
+#include <etools/factories/dispatch_factory.hpp>
 #include <etools/hashing/optimal_mph.hpp>
 #include <etools/meta/typelist.hpp>
 
 using namespace etools;
-using factories::static_factory;
+using factories::dispatch_factory;
 
 namespace {
 
@@ -164,10 +164,10 @@ struct seq_type : base {
 // --- Factory aliases -------------------------------------------------------
 
 template <class... Ts>
-using factory = static_factory<base, key_extractor, meta::typelist<Ts...>>;
+using factory = dispatch_factory<base, key_extractor, meta::typelist<Ts...>>;
 
 template <class... Ts>
-using factory_unwrapped = static_factory<base, key_extractor, Ts...>;
+using factory_unwrapped = dispatch_factory<base, key_extractor, Ts...>;
 
 } // namespace
 
@@ -179,7 +179,7 @@ using factory_unwrapped = static_factory<base, key_extractor, Ts...>;
 // table, ownership model) fails the build rather than a test.
 // ===========================================================================
 
-TEST(StaticFactoryCompile, TypelistAdapterSpecialization) {
+TEST(DispatchFactoryCompile, TypelistAdapterSpecialization) {
     using wrapped   = factory<a8, b8, c8>;
     using unwrapped = factory_unwrapped<a8, b8, c8>;
 
@@ -196,7 +196,7 @@ TEST(StaticFactoryCompile, TypelistAdapterSpecialization) {
     );
 }
 
-TEST(StaticFactoryCompile, KeyTypeDeducedFromExtractor) {
+TEST(DispatchFactoryCompile, KeyTypeDeducedFromExtractor) {
     static_assert(
         std::is_same_v<decltype(key_extractor<a8>::value), const std::uint8_t>,
         "8-bit key extractor"
@@ -207,7 +207,7 @@ TEST(StaticFactoryCompile, KeyTypeDeducedFromExtractor) {
     );
 }
 
-TEST(StaticFactoryCompile, EmplaceReturnsBasePointer) {
+TEST(DispatchFactoryCompile, EmplaceReturnsBasePointer) {
     using f = factory<a8, b8>;
     static_assert(
         std::is_same_v<
@@ -225,7 +225,7 @@ TEST(StaticFactoryCompile, EmplaceReturnsBasePointer) {
     );
 }
 
-TEST(StaticFactoryCompile, EmplaceIsNoexcept) {
+TEST(DispatchFactoryCompile, EmplaceIsNoexcept) {
     using f = factory<a8, b8>;
     static_assert(noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>())),
                   "default-construct dispatch is noexcept");
@@ -233,14 +233,14 @@ TEST(StaticFactoryCompile, EmplaceIsNoexcept) {
                   "int-arg dispatch is noexcept");
 }
 
-TEST(StaticFactoryCompile, HeterogeneousConstructorSignaturesAllRegisterable) {
+TEST(DispatchFactoryCompile, HeterogeneousConstructorSignaturesAllRegisterable) {
     // a8 default, b8(int), c8(string) — exercises the if-constexpr SFINAE
     // branch in try_emplace_if_constructible.
     using f = factory<a8, b8, c8>;
     static_assert(sizeof(f) > 0, "type must instantiate");
 }
 
-TEST(StaticFactoryCompile, OwnershipModel_PinnedType) {
+TEST(DispatchFactoryCompile, OwnershipModel_PinnedType) {
     // The factory owns in-place storage for its derived objects, so it is a
     // pinned type: copy and move are both deleted (like std::mutex). Hold it
     // by reference / static / stack; never relocate it.
@@ -251,7 +251,7 @@ TEST(StaticFactoryCompile, OwnershipModel_PinnedType) {
     static_assert(!std::is_move_assignable_v<f>,    "factory must not be move-assignable");
 }
 
-TEST(StaticFactoryCompile, MphSurfaceIsBackendAgnostic) {
+TEST(DispatchFactoryCompile, MphSurfaceIsBackendAgnostic) {
     // Verifies the cross-backend contract (size/capacity/not_found) holds for
     // the table the factory will build internally.
     constexpr const auto& dense = hashing::optimal_mph<std::uint8_t>
@@ -270,7 +270,7 @@ TEST(StaticFactoryCompile, MphSurfaceIsBackendAgnostic) {
 // Runtime — construction basics
 // ===========================================================================
 
-TEST(StaticFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
+TEST(DispatchFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
     factory<a8> f;
 
     base* p = f.emplace(a8::key);
@@ -281,7 +281,7 @@ TEST(StaticFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
     EXPECT_EQ(a->constructed, 1);
 }
 
-TEST(StaticFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
+TEST(DispatchFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
     b8::reset_counts();
     factory<b8> f;
 
@@ -294,7 +294,7 @@ TEST(StaticFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
     EXPECT_EQ(b8::dtor_calls, 0);
 }
 
-TEST(StaticFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
+TEST(DispatchFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
     factory<h16> f;
 
     base* p = f.emplace(h16::key, 5, 3.5);
@@ -305,7 +305,7 @@ TEST(StaticFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
     EXPECT_DOUBLE_EQ(h->b, 3.5);
 }
 
-TEST(StaticFactoryRuntime, BaseConversion_DynamicCastBack) {
+TEST(DispatchFactoryRuntime, BaseConversion_DynamicCastBack) {
     factory<g16> f;
 
     base* p = f.emplace(g16::key);
@@ -315,7 +315,7 @@ TEST(StaticFactoryRuntime, BaseConversion_DynamicCastBack) {
     EXPECT_STREQ(g->tag(), "g16");
 }
 
-TEST(StaticFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
+TEST(DispatchFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
     factory<i_noncopyable> f;
 
     base* p = f.emplace(i_noncopyable::key);
@@ -325,7 +325,7 @@ TEST(StaticFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
     EXPECT_EQ(i->v, 7);
 }
 
-TEST(StaticFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
+TEST(DispatchFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
     b8::reset_counts();
     factory<a8, b8, c8> f;
 
@@ -347,7 +347,7 @@ TEST(StaticFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
     EXPECT_NE(pb, pc);
 }
 
-TEST(StaticFactoryRuntime, DestructorDestroysOwnedObjects) {
+TEST(DispatchFactoryRuntime, DestructorDestroysOwnedObjects) {
     b8::reset_counts();
     {
         factory<b8> f;
@@ -355,10 +355,10 @@ TEST(StaticFactoryRuntime, DestructorDestroysOwnedObjects) {
         EXPECT_EQ(b8::ctor_calls, 1);
         EXPECT_EQ(b8::dtor_calls, 0);
     } // factory destroyed here -> owned slot destroyed -> b8 destructed
-    EXPECT_EQ(b8::dtor_calls, 1) << "~static_factory must destroy objects in its slots";
+    EXPECT_EQ(b8::dtor_calls, 1) << "~dispatch_factory must destroy objects in its slots";
 }
 
-TEST(StaticFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
+TEST(DispatchFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
     factory<b8> f1;
     factory<b8> f2;
     b8::reset_counts();
@@ -378,7 +378,7 @@ TEST(StaticFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
 // Runtime — perfect forwarding
 // ===========================================================================
 
-TEST(StaticFactoryForwarding, StringLvalue_PicksCopyCtor) {
+TEST(DispatchFactoryForwarding, StringLvalue_PicksCopyCtor) {
     factory<c8> f;
 
     std::string s = "hello";
@@ -391,7 +391,7 @@ TEST(StaticFactoryForwarding, StringLvalue_PicksCopyCtor) {
     EXPECT_EQ(s, "hello") << "lvalue source must not be moved-from";
 }
 
-TEST(StaticFactoryForwarding, StringRvalue_PicksMoveCtor) {
+TEST(DispatchFactoryForwarding, StringRvalue_PicksMoveCtor) {
     factory<c8> f;
 
     base* p = f.emplace(c8::key, std::string("world"));
@@ -402,7 +402,7 @@ TEST(StaticFactoryForwarding, StringRvalue_PicksMoveCtor) {
     EXPECT_EQ(c->s, "world");
 }
 
-TEST(StaticFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
+TEST(DispatchFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
     factory<c8> f;
 
     std::string s = "moved";
@@ -414,7 +414,7 @@ TEST(StaticFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
     EXPECT_EQ(c->s, "moved");
 }
 
-TEST(StaticFactoryForwarding, ConstLvalue_PicksCopyCtor) {
+TEST(DispatchFactoryForwarding, ConstLvalue_PicksCopyCtor) {
     factory<c8> f;
 
     const std::string s = "constref";
@@ -426,7 +426,7 @@ TEST(StaticFactoryForwarding, ConstLvalue_PicksCopyCtor) {
     EXPECT_EQ(c->s, "constref");
 }
 
-TEST(StaticFactoryForwarding, TripleCtor_ByValue_OneArg) {
+TEST(DispatchFactoryForwarding, TripleCtor_ByValue_OneArg) {
     factory<triple_ctor> f;
 
     std::string s = "by-value-lvalue";
@@ -438,7 +438,7 @@ TEST(StaticFactoryForwarding, TripleCtor_ByValue_OneArg) {
     EXPECT_EQ(t->s, "by-value-lvalue");
 }
 
-TEST(StaticFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
+TEST(DispatchFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
     factory<triple_ctor> f;
 
     base* p = f.emplace(triple_ctor::key, std::string("by-value-rvalue"));
@@ -449,7 +449,7 @@ TEST(StaticFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
     EXPECT_EQ(t->s, "by-value-rvalue");
 }
 
-TEST(StaticFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
+TEST(DispatchFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
     factory<triple_ctor> f;
 
     std::string s = "cref-overload";
@@ -462,7 +462,7 @@ TEST(StaticFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
     EXPECT_EQ(s, "cref-overload") << "const-ref overload must not move from source";
 }
 
-TEST(StaticFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
+TEST(DispatchFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
     factory<triple_ctor> f;
 
     base* p = f.emplace(triple_ctor::key, std::string("rvalue-overload"), 1.0);
@@ -473,7 +473,7 @@ TEST(StaticFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
     EXPECT_EQ(t->s, "rvalue-overload");
 }
 
-TEST(StaticFactoryForwarding, MoveOnlyType_UniquePtr) {
+TEST(DispatchFactoryForwarding, MoveOnlyType_UniquePtr) {
     factory<d8> f;
 
     auto up = std::make_unique<int>(7);
@@ -487,7 +487,7 @@ TEST(StaticFactoryForwarding, MoveOnlyType_UniquePtr) {
     EXPECT_EQ(*d->keep, 7);
 }
 
-TEST(StaticFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
+TEST(DispatchFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
     factory<move_observer> f;
 
     std::string src = "this string is long enough to live on the heap and survive SSO truncation";
@@ -501,7 +501,7 @@ TEST(StaticFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
     EXPECT_EQ(m->s.data(), src_data_before) << "buffer should have been pilfered, not copied";
 }
 
-TEST(StaticFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
+TEST(DispatchFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
     factory<h16> f;
 
     int x = 5;          // lvalue
@@ -517,7 +517,7 @@ TEST(StaticFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
 // Runtime — lifecycle (replacement, repeated emplace, ctor/dtor counts)
 // ===========================================================================
 
-TEST(StaticFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
+TEST(DispatchFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
     b8::reset_counts();
     factory<b8> f;
 
@@ -536,7 +536,7 @@ TEST(StaticFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
     EXPECT_EQ(b->value, 2);
 }
 
-TEST(StaticFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
+TEST(DispatchFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
     b8::reset_counts();
     factory<b8> f;
 
@@ -551,7 +551,7 @@ TEST(StaticFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
     EXPECT_EQ(b8::dtor_calls, 3);
 }
 
-TEST(StaticFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
+TEST(DispatchFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
     factory<c8> f;
 
     base* p1 = f.emplace(c8::key, std::string("first"));
@@ -571,7 +571,7 @@ TEST(StaticFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
 // Runtime — boundary and scale
 // ===========================================================================
 
-TEST(StaticFactoryBoundary, KeyZero_Works) {
+TEST(DispatchFactoryBoundary, KeyZero_Works) {
     factory<e8_zero> f;
 
     std::string s = "edge";
@@ -583,7 +583,7 @@ TEST(StaticFactoryBoundary, KeyZero_Works) {
     EXPECT_EQ(e->s, "edge");
 }
 
-TEST(StaticFactoryBoundary, KeyMaxUint8_Works) {
+TEST(DispatchFactoryBoundary, KeyMaxUint8_Works) {
     factory<f8_max> f;
 
     std::array<int, 64> a{};
@@ -596,7 +596,7 @@ TEST(StaticFactoryBoundary, KeyMaxUint8_Works) {
     EXPECT_EQ(fp->buf[63], 63 * 63);
 }
 
-TEST(StaticFactoryBoundary, SparseKey_SixtyThousand) {
+TEST(DispatchFactoryBoundary, SparseKey_SixtyThousand) {
     factory<sparse16> f;
 
     base* p = f.emplace(sparse16::key);
@@ -604,7 +604,7 @@ TEST(StaticFactoryBoundary, SparseKey_SixtyThousand) {
     EXPECT_STREQ(p->tag(), "sparse16");
 }
 
-TEST(StaticFactoryBoundary, MixedKeyWidths_SeparateFactoriesCoexist) {
+TEST(DispatchFactoryBoundary, MixedKeyWidths_SeparateFactoriesCoexist) {
     factory<a8>  f8;
     factory<g16> f16;
 
@@ -612,7 +612,7 @@ TEST(StaticFactoryBoundary, MixedKeyWidths_SeparateFactoriesCoexist) {
     EXPECT_NE(f16.emplace(g16::key), nullptr);
 }
 
-TEST(StaticFactoryBoundary, LargeTypelist_SparseKeys) {
+TEST(DispatchFactoryBoundary, LargeTypelist_SparseKeys) {
     factory<
         seq_type<1>,   seq_type<17>,  seq_type<33>,  seq_type<49>,
         seq_type<65>,  seq_type<81>,  seq_type<97>,  seq_type<113>,
@@ -631,7 +631,7 @@ TEST(StaticFactoryBoundary, LargeTypelist_SparseKeys) {
 // Runtime — nullptr paths
 // ===========================================================================
 
-TEST(StaticFactoryNullptr, UnknownKey_SmallSet_ReturnsNullptr) {
+TEST(DispatchFactoryNullptr, UnknownKey_SmallSet_ReturnsNullptr) {
     factory<a8, b8, c8> f;
 
     // Registered keys: {2, 5, 7}.
@@ -640,7 +640,7 @@ TEST(StaticFactoryNullptr, UnknownKey_SmallSet_ReturnsNullptr) {
     EXPECT_EQ(f.emplace(static_cast<std::uint8_t>(255)), nullptr);
 }
 
-TEST(StaticFactoryNullptr, UnknownKey_LargeSet_ReturnsNullptr) {
+TEST(DispatchFactoryNullptr, UnknownKey_LargeSet_ReturnsNullptr) {
     factory<
         seq_type<2>,  seq_type<18>, seq_type<34>, seq_type<50>,
         seq_type<66>, seq_type<82>, seq_type<98>, seq_type<114>
@@ -650,7 +650,7 @@ TEST(StaticFactoryNullptr, UnknownKey_LargeSet_ReturnsNullptr) {
     EXPECT_EQ(f.emplace(static_cast<std::uint16_t>(0)),   nullptr);
 }
 
-TEST(StaticFactoryNullptr, ArgMismatch_NoSlotConstructible) {
+TEST(DispatchFactoryNullptr, ArgMismatch_NoSlotConstructible) {
     factory<a8, b8, c8> f;
 
     // a8 takes no args, b8 takes int, c8 takes string. A double argument
@@ -659,7 +659,7 @@ TEST(StaticFactoryNullptr, ArgMismatch_NoSlotConstructible) {
     EXPECT_EQ(f.emplace(a8::key, 3.14), nullptr);
 }
 
-TEST(StaticFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
+TEST(DispatchFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
     b8::reset_counts();
     factory<a8, b8, c8> f;
 
@@ -679,7 +679,7 @@ TEST(StaticFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
     EXPECT_EQ(b8::dtor_calls, 0);
 }
 
-TEST(StaticFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
+TEST(DispatchFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
     factory<b8> f;
 
     // b8 takes int, not unique_ptr. Pass an rvalue unique_ptr — the
