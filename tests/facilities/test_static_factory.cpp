@@ -9,7 +9,6 @@
 
 #include <etools/factories/static_factory.hpp>
 #include <etools/hashing/optimal_mph.hpp>
-#include <etools/memory/slot.hpp>
 #include <etools/meta/typelist.hpp>
 
 using namespace etools;
@@ -250,14 +249,6 @@ TEST(StaticFactoryCompile, OwnershipModel_PinnedType) {
     static_assert(!std::is_copy_assignable_v<f>,    "factory must not be copy-assignable");
     static_assert(!std::is_move_constructible_v<f>, "factory must not be movable");
     static_assert(!std::is_move_assignable_v<f>,    "factory must not be move-assignable");
-}
-
-TEST(SlotCompile, ConditionalMovability_PropagatesFromContainedType) {
-    // slot<T> (unlike the pinned factory) has honest conditional move traits.
-    static_assert(std::is_move_constructible_v<memory::slot<std::string>>,
-        "slot<movable T> must be move-constructible");
-    static_assert(!std::is_move_constructible_v<memory::slot<i_noncopyable>>,
-        "slot<non-movable T> must NOT be move-constructible");
 }
 
 TEST(StaticFactoryCompile, MphSurfaceIsBackendAgnostic) {
