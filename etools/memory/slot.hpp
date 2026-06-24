@@ -20,6 +20,23 @@
 * `operator->`). The contained object, if any, is destroyed automatically by the
 * `slot` destructor (RAII).
 *
+* ### Why this exists alongside `std::optional`
+* As it stands, `slot<T>` is largely `std::optional<T>` with relocate-on-move semantics
+* (a moved-from slot is left *empty*) and a nothrow-destructible requirement. If all you
+* need today is an in-place optional cell, prefer `std::optional` — it is the better-tested,
+* zero-maintenance choice, and `static_factory` uses it for exactly that reason.
+*
+* `slot` is kept as an in-house primitive because it is really a **blueprint for a future
+* pool slot**: the cell type a fixed-capacity memory pool would compose. A pool tracks
+* occupancy externally (a free list or bitmap) and can fold the free-list link into a cell's
+* dead storage, so the eventual pool slot **will not need the per-object `_constructed` flag
+* carried here** — nor will it want `std::optional`'s mandatory discriminant or its
+* engaged-but-moved-from semantics. The `_constructed` flag in this version exists only so a
+* *standalone* `slot` is self-contained and correct; it is the part a pool would drop. The
+* relocate-empties move and the nothrow-dtor guard, by contrast, are the pool-cell semantics
+* this primitive is being shaped toward. None of that is reachable through `std::optional`'s
+* sealed contract, which is why the primitive stays ours.
+*
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
 * @date 2025-07-29
@@ -46,6 +63,10 @@
 *        invites unchecked deref; `operator bool` + `operator*` already cover safe access).
 *        Renamed `destroy()` to `reset()` to match `std::optional`. `emplace()` now returns
 *        `T&` instead of `T*`, matching `std::optional::emplace`.
+* - 2026-06-24
+*      - Documented why `slot` exists alongside `std::optional`: it is a blueprint for a
+*        future pool slot. Noted that the `_constructed` flag is only needed by a standalone
+*        slot and is the part a pool (external occupancy tracking) would drop.
 */
 
 #ifndef ETOOLS_MEMORY_SLOT_HPP_
