@@ -25,6 +25,10 @@
 *        `details::slot_base`/`slot_move_ctrl` base chain (honest movability
 *        traits). `emplace()`/`construct()` set the engaged flag only after a
 *        successful placement-new (strong guarantee on a throwing constructor).
+* - 2026-06-23
+*      - API trim: removed `construct()` and the `get()` accessors; renamed
+*        `destroy()` to `reset()`; `emplace()` now returns `T&`. `reset()`
+*        forwards to `details::slot_base<T>::reset()`.
 */
 
 #ifndef ETOOLS_MEMORY_SLOT_TPP_
@@ -35,28 +39,19 @@ namespace etools::memory {
 
     template <typename T>
     template <typename... Args>
-    inline T *slot<T>::construct(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>)
-    {
-        static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
-        assert(not this->_constructed && "slot::construct(): slot already engaged; use emplace() to overwrite.");
-        return emplace(std::forward<Args>(args)...);
-    }
-
-    template <typename T>
-    template <typename... Args>
-    inline T *slot<T>::emplace(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>){
+    inline T &slot<T>::emplace(Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>){
         static_assert(std::is_constructible_v<T, Args&&...>, "T must be constructible with the forwarded arguments.");
         this->reset();
         // Construct first; only mark engaged on success. If T's constructor throws,
         // the slot remains empty rather than claiming to hold a half-built object.
         T* p = ::new (static_cast<void*>(&this->_mem)) T(std::forward<Args>(args)...);
         this->_constructed = true;
-        return p;
+        return *p;
     }
 
     template <typename T>
-    inline void slot<T>::destroy() noexcept {
-        this->reset();
+    inline void slot<T>::reset() noexcept {
+        details::slot_base<T>::reset();
     }
 
     template <typename T>
@@ -67,18 +62,6 @@ namespace etools::memory {
     template <typename T>
     inline slot<T>::operator bool() const noexcept {
         return this->_constructed;
-    }
-
-    template <typename T>
-    inline T *slot<T>::get() noexcept {
-        if (not this->_constructed) return nullptr;
-        return this->ptr();
-    }
-
-    template <typename T>
-    inline const T *slot<T>::get() const noexcept {
-        if (not this->_constructed) return nullptr;
-        return this->ptr();
     }
 
     template <typename T>

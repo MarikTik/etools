@@ -15,9 +15,9 @@
 * objects are independent. Construct as many as you need, wherever you need them (stack,
 * static, as a member of a larger aggregate). There is no global/singleton storage.
 *
-* The `slot<T>` provides manual lifecycle control (`construct`, `emplace`, `destroy`) plus
-* an `std::optional`-shaped access surface (`has_value`, `operator bool`, `operator*`,
-* `operator->`, `get`). The contained object, if any, is destroyed automatically by the
+* The `slot<T>` provides manual lifecycle control (`emplace`, `reset`) plus an
+* `std::optional`-shaped access surface (`has_value`, `operator bool`, `operator*`,
+* `operator->`). The contained object, if any, is destroyed automatically by the
 * `slot` destructor (RAII).
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
@@ -39,6 +39,13 @@
 *        destructor, conditional move semantics (movable iff `T` is move-constructible,
 *        with honest type traits via the standard base-class technique), and an
 *        `std::optional`-shaped access surface.
+* - 2026-06-23
+*      - API trim toward the `std::optional` model. Removed `construct()` (it was
+*        `emplace()` plus a debug-only assert — a tripwire callers can't see). Removed
+*        the `get()` accessors (nullable raw-pointer access is a smart-pointer idiom that
+*        invites unchecked deref; `operator bool` + `operator*` already cover safe access).
+*        Renamed `destroy()` to `reset()` to match `std::optional`. `emplace()` now returns
+*        `T&` instead of `T*`, matching `std::optional::emplace`.
 */
 
 #ifndef ETOOLS_MEMORY_SLOT_HPP_
@@ -160,6 +167,7 @@ namespace etools::memory {
     * @tparam T The type of object to store in this slot.
     *
     * ### Key Characteristics:
+    * 
     * - At most one `T` is alive in the slot at any time.
     * - Storage is in-place (no heap allocation); the `T` lives inside the slot's bytes.
     * - Value semantics: each `slot<T>` owns independent storage. No singleton.
@@ -172,20 +180,19 @@ namespace etools::memory {
     * ```cpp
     * struct Foo { int x; };
     * slot<Foo> s;            // owns its own storage
-    * s.construct(42);        // construct Foo in-place with x = 42
+    * s.emplace(42);          // construct Foo in-place with x = 42
     * if (s) { Foo& f = *s; } // access via operator bool / operator*
-    * s.destroy();            // destroy the object (also done by ~slot)
+    * s.reset();              // destroy the object (also done by ~slot)
     * ```
     *
     * @invariant `_mem` is aligned for `T` and large enough to hold a `T`.
     * @invariant `_constructed == true` iff `_mem` currently contains a live `T`.
     *
     * @warning
-    * - `construct()` asserts in debug builds if called while already engaged.
-    * - `destroy()` is idempotent — calling it on an empty slot is a no-op.
+    * - `reset()` is idempotent — calling it on an empty slot is a no-op.
     * - `operator*` / `operator->` have a precondition that the slot is engaged; they
-    *   assert in debug builds. Use `get()` (returns `nullptr` when empty) or check
-    *   `has_value()` first when the state is unknown.
+    *   assert in debug builds. Check `has_value()` (or `operator bool`) first when the
+    *   state is unknown.
     * - This class is NOT thread-safe.
     *
     * @note Move semantics diverge from `std::optional`: a moved-from `slot` is left **empty**
@@ -210,57 +217,38 @@ namespace etools::memory {
         slot() noexcept = default;
 
         /**
-        * @brief Constructs an object of type `T` in-place with the given arguments.
-        *
-        * @tparam Args Argument types for T's constructor.
-        * @param args Arguments forwarded to T's constructor.
-        * @return Pointer to the newly constructed object.
-        *
-        * @pre The slot is empty (`has_value() == false`).
-        * @post On success the slot is engaged and `get()` returns the same pointer.
-        *
-        * @warning Asserts in debug builds when the precondition is violated. In release
-        *          builds, calling `construct()` on an engaged slot overwrites the buffer
-        *          without destroying the previous object (leak). Use `emplace()` to
-        *          overwrite safely.
-        * @note Strong guarantee: if `T`'s constructor throws, the slot is left empty
-        *       (the engaged flag is only set after successful construction).
-        * @note The function is `noexcept` iff `T`'s selected constructor is `noexcept`.
-        */
-        template<typename... Args>
-        inline T* construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args&&...>);
-
-        /**
         * @brief Constructs or replaces the object in-place with the given arguments.
         *
         * If an object is already constructed, it is destroyed before the new one is built.
         *
         * @tparam Args Argument types for T's constructor.
         * @param args Arguments forwarded to T's constructor.
-        * @return Pointer to the newly constructed object.
+        * @return Reference to the newly constructed object.
         *
         * @post The slot is engaged and holds the value built from `args...`. Any
         *       previously-held object has been destroyed exactly once.
         *
-        * @warning Unlike `construct()`, `emplace()` does **not** assert on an engaged slot —
-        *          it destroys then rebuilds. This is the safe choice when the slot's state
-        *          is unknown.
+        * @note If the slot is already engaged, `emplace()` destroys the current object then
+        *       rebuilds; it does not assert. This is the safe choice when the slot's state
+        *       is unknown.
         * @note Strong guarantee on the *new* object: the old object is destroyed first,
         *       then if `T`'s constructor throws the slot is left empty.
         * @note The function is `noexcept` iff `T`'s selected constructor is `noexcept`.
         */
         template<typename... Args>
-        inline T* emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args&&...>);
+        inline T& emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args&&...>);
 
         /**
         * @brief Destroys the currently constructed object, if any.
         *
-        * @post The slot is empty; `get()` returns `nullptr`.
+        * @post The slot is empty; `has_value()` returns `false`.
         *
-        * @note Idempotent: calling `destroy()` on an empty slot is a no-op and does not
+        * @note Idempotent: calling `reset()` on an empty slot is a no-op and does not
         *       invoke `~T()`.
+        * @note The slot destructor calls this automatically (RAII); call it explicitly only
+        *       to end the contained object's lifetime before the slot's own scope ends.
         */
-        inline void destroy() noexcept;
+        inline void reset() noexcept;
 
         /**
         * @brief Returns whether the slot currently holds a constructed object.
@@ -277,24 +265,6 @@ namespace etools::memory {
         * @note `explicit` to avoid accidental integral conversions.
         */
         [[nodiscard]] explicit inline operator bool() const noexcept;
-
-        /**
-        * @brief Returns a pointer to the object if constructed.
-        *
-        * @return Pointer to T if constructed, otherwise `nullptr`.
-        *
-        * @post The returned pointer is either `nullptr` or points to a live `T`.
-        * @note Uses `std::launder` to refresh the pointer through the placement-new
-        *       boundary, avoiding strict-aliasing violations.
-        */
-        [[nodiscard]] inline T* get() noexcept;
-
-        /**
-        * @brief Returns a const pointer to the object if constructed.
-        *
-        * @return Pointer to const T if constructed, otherwise `nullptr`.
-        */
-        [[nodiscard]] inline const T* get() const noexcept;
 
         /**
         * @brief Dereferences the contained object.
