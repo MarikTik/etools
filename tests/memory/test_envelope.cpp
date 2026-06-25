@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <etools/memory/envelope.hpp>
+#include <eser/flat/serializer.hpp>
 #include <memory>
 #include <utility>
 
@@ -66,8 +67,10 @@ TEST(EnvelopeTest, PackUnpackStruct_Positive) {
     EXPECT_EQ(e.capacity(), 16);
     EXPECT_EQ(e.size(), sizeof(Message));
 
-    auto [msg] = e.unpack<Message>();
- 
+    auto unpacked = e.unpack<Message>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [msg] = *unpacked;
+
     EXPECT_EQ(msg, m);
 }
 
@@ -82,7 +85,9 @@ TEST(EnvelopeTest, Repack_Positive) {
     e.pack(100);
     EXPECT_EQ(e.size(), sizeof(int));
     
-    auto [unpacked_int] = e.unpack<int>();
+    auto unpacked = e.unpack<int>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [unpacked_int] = *unpacked;
     EXPECT_EQ(unpacked_int, 100);
 }
 
@@ -103,12 +108,14 @@ TEST(EnvelopeTest, ConstructWithPrepopulatedSize)
 
     // Serialize manually into a buffer
     auto raw = std::make_unique<std::byte[]>(cap);
-    std::size_t used = eser::binary::serialize(123, 'X').to(raw.get(), cap);
+    std::size_t used = eser::flat::serialize(123, 'X').to(raw.get(), cap);
 
     // Construct envelope with pre-filled data
     etools::memory::envelope env(std::move(raw), cap, used);
 
-    auto [i, c] = env.unpack<int, char>();
+    auto unpacked = env.unpack<int, char>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [i, c] = *unpacked;
     EXPECT_EQ(i, 123);
     EXPECT_EQ(c, 'X');
     EXPECT_EQ(env.size(), used);
@@ -128,7 +135,9 @@ TEST(EnvelopeTest, ConstructWithCustomNoopDeleter)
     etools::memory::envelope<NoDelete> env(std::move(ptr), cap);
 
     env.pack(3.14, 'Z');
-    auto [d, ch] = env.unpack<double, char>();
+    auto unpacked = env.unpack<double, char>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [d, ch] = *unpacked;
     EXPECT_DOUBLE_EQ(d, 3.14);
     EXPECT_EQ(ch, 'Z');
     EXPECT_LE(env.size(), env.capacity());
@@ -221,7 +230,9 @@ TEST(EnvelopeTest, MoveAssign_SelfMoveIsNoop) {
     EXPECT_EQ(env.size(),     size_before);
     EXPECT_EQ(env.capacity(), cap_before);
 
-    auto [i] = env.unpack<int>();
+    auto unpacked = env.unpack<int>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [i] = *unpacked;
     EXPECT_EQ(i, 123) << "self-move must not corrupt the payload";
 }
 
@@ -256,7 +267,9 @@ TEST(EnvelopeTest, PackUnpack_HeterogeneousTypes_PreservesValues) {
     env.pack(int{-7}, double{2.71828}, char{'Q'});
     EXPECT_LE(env.size(), env.capacity());
 
-    auto [i, d, c] = env.unpack<int, double, char>();
+    auto unpacked = env.unpack<int, double, char>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [i, d, c] = *unpacked;
     EXPECT_EQ(i, -7);
     EXPECT_DOUBLE_EQ(d, 2.71828);
     EXPECT_EQ(c, 'Q');

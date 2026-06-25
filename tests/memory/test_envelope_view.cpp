@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include <eser/binary/serializer.hpp>
+#include <eser/flat/serializer.hpp>
 #include <etools/memory/envelope_view.hpp>
 #include <type_traits>
 struct Message {
@@ -17,8 +17,7 @@ static_assert(std::is_trivially_copyable_v<Message>);
 TEST(EnvelopeViewTest, Constructor_Positive) {
     // Manually create a buffer and serialize data into it.
     std::byte buffer[100]{};
-    auto serialized_data = eser::binary::serialize(42, 3.14f);
-    size_t data_size = serialized_data.to(buffer);
+    size_t data_size = eser::flat::serialize(42, 3.14f).to(buffer);
 
     // Create a view from the data.
     etools::memory::envelope_view view(buffer, data_size);
@@ -33,14 +32,15 @@ TEST(EnvelopeViewTest, UnpackScalar_Positive) {
     std::byte buffer[100]{};
     int a = 100;
     float b = 50.5f;
-    auto serialized_data = eser::binary::serialize(a, b);
-    size_t data_size = serialized_data.to(buffer);
+    size_t data_size = eser::flat::serialize(a, b).to(buffer);
 
     // Create a view from the serialized data.
     etools::memory::envelope_view view(buffer, data_size);
 
     // Unpack the data from the view.
-    auto [unpacked_a, unpacked_b] = view.unpack<int, float>();
+    auto unpacked = view.unpack<int, float>();
+    ASSERT_TRUE(unpacked.has_value());
+    auto& [unpacked_a, unpacked_b] = *unpacked;
 
     // Verify the unpacked values are correct.
     EXPECT_EQ(unpacked_a, a);
@@ -51,15 +51,15 @@ TEST(EnvelopeViewTest, UnpackStruct_Positive) {
     // Manually create a buffer and serialize data into it.
     std::byte buffer[100]{};
     Message m = {123, 99.9f};
-    auto serialized_data = eser::binary::serialize(m);
-    size_t data_size = serialized_data.to(buffer);
+    size_t data_size = eser::flat::serialize(m).to(buffer);
 
     // Create a view from the serialized data.
     etools::memory::envelope_view view(buffer, data_size);
-    
+
     // Unpack the data from the view.
-    auto unpacked_tuple = view.unpack<Message>();
-    Message unpacked_m = std::get<0>(unpacked_tuple);
+    auto unpacked = view.unpack<Message>();
+    ASSERT_TRUE(unpacked.has_value());
+    Message unpacked_m = std::get<0>(*unpacked);
 
     // Verify the struct's contents.
     EXPECT_EQ(unpacked_m, m);
@@ -67,9 +67,8 @@ TEST(EnvelopeViewTest, UnpackStruct_Positive) {
 
 TEST(EnvelopeViewTest, CopySemantics_Positive) {
     std::byte buffer[100]{};
-    auto serialized_data = eser::binary::serialize(1, 2, 3);
-    size_t data_size = serialized_data.to(buffer);
-    
+    size_t data_size = eser::flat::serialize(1, 2, 3).to(buffer);
+
     etools::memory::envelope_view view1(buffer, data_size);
     const std::byte* original_data_ptr = view1.data();
 
@@ -87,8 +86,7 @@ TEST(EnvelopeViewTest, CopySemantics_Positive) {
 
 TEST(EnvelopeViewTest, MoveSemantics_Positive) {
     std::byte buffer[100]{};
-    auto serialized_data = eser::binary::serialize(1.0, 2.0, 3.0);
-    size_t data_size = serialized_data.to(buffer);
+    size_t data_size = eser::flat::serialize(1.0, 2.0, 3.0).to(buffer);
 
     etools::memory::envelope_view view1(buffer, data_size);
     const std::byte* original_data_ptr = view1.data();
@@ -122,11 +120,15 @@ TEST(EnvelopeViewTest, MultipleUnpackCalls_AreIndependent) {
     // it twice on the same view must yield identical results — there's no
     // "consumed bytes" pointer hiding inside the view.
     std::byte buffer[64]{};
-    size_t data_size = eser::binary::serialize(11, 22).to(buffer);
+    size_t data_size = eser::flat::serialize(11, 22).to(buffer);
 
     etools::memory::envelope_view v(buffer, data_size);
-    auto [a1, b1] = v.unpack<int, int>();
-    auto [a2, b2] = v.unpack<int, int>();
+    auto first = v.unpack<int, int>();
+    auto second = v.unpack<int, int>();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    auto& [a1, b1] = *first;
+    auto& [a2, b2] = *second;
 
     EXPECT_EQ(a1, 11); EXPECT_EQ(b1, 22);
     EXPECT_EQ(a2, 11); EXPECT_EQ(b2, 22);
@@ -136,7 +138,7 @@ TEST(EnvelopeViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
     // A view is a non-owning value type. Two views built on the same buffer
     // should be interchangeable — no hidden per-view state.
     std::byte buffer[64]{};
-    size_t data_size = eser::binary::serialize(double{3.14}, char{'M'}).to(buffer);
+    size_t data_size = eser::flat::serialize(double{3.14}, char{'M'}).to(buffer);
 
     etools::memory::envelope_view v_a(buffer, data_size);
     etools::memory::envelope_view v_b(buffer, data_size);
@@ -144,8 +146,12 @@ TEST(EnvelopeViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
     EXPECT_EQ(v_a.data(), v_b.data());
     EXPECT_EQ(v_a.size(), v_b.size());
 
-    auto [da, ca] = v_a.unpack<double, char>();
-    auto [db, cb] = v_b.unpack<double, char>();
+    auto a = v_a.unpack<double, char>();
+    auto b = v_b.unpack<double, char>();
+    ASSERT_TRUE(a.has_value());
+    ASSERT_TRUE(b.has_value());
+    auto& [da, ca] = *a;
+    auto& [db, cb] = *b;
     EXPECT_DOUBLE_EQ(da, db);
     EXPECT_EQ(ca, cb);
 }
