@@ -16,8 +16,8 @@
 #ifndef ETOOLS_MEMORY_ENVELOPE_TPP_
 #define ETOOLS_MEMORY_ENVELOPE_TPP_
 #include "envelope.hpp"
-#include <eser/binary/serializer.hpp>
-#include <eser/binary/deserializer.hpp>
+#include <eser/flat/serializer.hpp>
+#include <eser/flat/deserializer.hpp>
 #include <cassert>
 
 namespace etools::memory{
@@ -76,15 +76,15 @@ namespace etools::memory{
 
     template<typename Deleter>
     template<typename... Ts>
-    inline std::tuple<Ts...> envelope<Deleter>::unpack() const {
-        return eser::binary::deserialize(data(), _size).template to<Ts...>();
+    inline std::optional<std::tuple<Ts...>> envelope<Deleter>::unpack() const {
+        return eser::flat::deserialize(data(), size()).template to<std::tuple<Ts...>>();
     }
 
     template<typename Deleter>
     template<typename... Ts>
     inline void envelope<Deleter>::pack(Ts&&... args) {
         assert(_data && "envelope::pack(): called on a moved-from or null-data envelope");
-        _size = eser::binary::serialize(std::forward<Ts>(args)...).to(_data.get(), _capacity);
+        _size = eser::flat::serialize(std::forward<Ts>(args)...).to(_data.get(), capacity());
     }
 
 } // namespace etools::memory

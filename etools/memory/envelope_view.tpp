@@ -18,7 +18,7 @@
 #ifndef ETOOLS_MEMORY_ENVELOPE_VIEW_TPP_
 #define ETOOLS_MEMORY_ENVELOPE_VIEW_TPP_
 #include "envelope_view.hpp"
-#include <eser/binary/deserializer.hpp>
+#include <eser/flat/deserializer.hpp>
 namespace etools::memory {
     inline envelope_view::envelope_view(const std::byte *data, std::size_t size) noexcept
         : _data{data}, _size{size}
@@ -34,8 +34,8 @@ namespace etools::memory {
     }
 
     template<typename... Ts>
-    inline std::tuple<Ts...> envelope_view::unpack() const {
-        return eser::binary::deserialize(_data, _size).template to<Ts...>();
+    inline std::optional<std::tuple<Ts...>> envelope_view::unpack() const {
+        return eser::flat::deserialize(data(), size()).template to<std::tuple<Ts...>>();
     }
 
 } // namespace etools::memory

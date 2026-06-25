@@ -27,6 +27,7 @@
 #define ETOOLS_MEMORY_ENVELOPE_VIEW_HPP_
 #include <cstddef>
 #include <tuple>
+#include <optional>
 
 namespace etools::memory {
 
@@ -69,21 +70,19 @@ namespace etools::memory {
         /**
         * @brief Unpacks the envelope contents into a tuple of typed values.
         *
-        * Deserializes the buffer into strongly typed values using the
-        * `eser::binary::deserialize` API.
+        * Deserializes the buffer into strongly typed values via
+        * `eser::flat::deserialize(...).to<std::tuple<Ts...>>()`.
         *
         * @tparam Ts... The types to deserialize and extract from the view.
-        * @return A tuple containing the deserialized values.
+        * @return `std::nullopt` if the buffer holds fewer than the required bytes
+        *         (`sizeof(Ts) + ...`); otherwise an engaged optional holding the tuple.
         *
-        * @pre `this->size()` is at least as large as the total serialized footprint
-        *      of `Ts...`; the underlying deserializer enforces precise requirements.
-        * @warning If the precondition is violated the call delegates to
-        *          `eser::binary::deserializer`'s error handling, which may
-        *          `assert` in debug builds.
+        * @note Strictly all-or-nothing: a viewed range too short for `Ts...` yields
+        *       `nullopt` and reads nothing — there is no partial/zero fill.
         * @note Does not modify the viewed range.
         */
         template<typename ...Ts>
-        inline std::tuple<Ts...> unpack() const;
+        [[nodiscard]] inline std::optional<std::tuple<Ts...>> unpack() const;
 
         /**
         * @brief Returns a pointer to the underlying byte data.

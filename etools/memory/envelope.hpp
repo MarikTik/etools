@@ -48,6 +48,8 @@
 #define ETOOLS_MEMORY_ENVELOPE_HPP_
 #include <memory>
 #include <cstddef>
+#include <optional>
+#include <tuple>
 
 namespace etools::memory{
     /**
@@ -145,21 +147,19 @@ namespace etools::memory{
         /**
         * @brief Unpacks the envelope contents into a tuple of typed values.
         *
-        * Uses a deserialization mechanism to extract typed objects from
-        * the underlying byte array.
+        * Deserializes the underlying byte array into strongly typed values via
+        * `eser::flat::deserialize(...).to<std::tuple<Ts...>>()`.
         *
         * @tparam Ts... The types to deserialize and extract from the envelope.
-        * @return A tuple containing the deserialized values.
+        * @return `std::nullopt` if the buffer holds fewer than the required bytes
+        *         (`sizeof(Ts) + ...`); otherwise an engaged optional holding the tuple.
         *
-        * @pre `this->size() >= sizeof(Ts) + ...` for trivially-copyable scalars;
-        *      the underlying deserializer enforces precise per-type requirements.
-        * @warning If the buffer is too short for the requested types the call
-        *          delegates to `eser::binary::deserializer`'s error handling,
-        *          which may itself `assert` in debug builds.
+        * @note Strictly all-or-nothing: a buffer too short for `Ts...` yields `nullopt`
+        *       and reads nothing — there is no partial/zero fill.
         * @note Does not modify the envelope.
         */
         template<typename... Ts>
-        inline std::tuple<Ts...> unpack() const;
+        [[nodiscard]] inline std::optional<std::tuple<Ts...>> unpack() const;
 
         /**
         * @brief Packs one or more typed values into the envelope's memory block.
