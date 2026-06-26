@@ -193,7 +193,7 @@ namespace etools::memory{
         * @post The returned pointer is either `nullptr` or points to the start
         *       of the owned buffer.
         */
-        inline const std::byte* data() const noexcept;
+        [[nodiscard]] inline const std::byte* data() const noexcept;
 
         /**
         * @brief Returns the size of the used portion of the envelope's memory.
@@ -202,7 +202,7 @@ namespace etools::memory{
         *
         * @post Return value is always `<= capacity()`.
         */
-        inline std::size_t size() const noexcept;
+        [[nodiscard]] inline std::size_t size() const noexcept;
 
         /**
         * @brief Returns the total capacity of the envelope's memory.
@@ -211,7 +211,7 @@ namespace etools::memory{
         *
         * @post Return value is the capacity passed at construction, or `0` after move.
         */
-        inline std::size_t capacity() const noexcept;
+        [[nodiscard]] inline std::size_t capacity() const noexcept;
 
         /// Deleted copy constructor — envelope is a unique-ownership type.
         envelope(const envelope&) = delete;

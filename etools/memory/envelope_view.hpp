@@ -94,7 +94,7 @@ namespace etools::memory {
         *
         * @post Returns the same pointer that was passed at construction.
         */
-        inline const std::byte* data() const noexcept;
+        [[nodiscard]] inline const std::byte* data() const noexcept;
 
         /**
         * @brief Returns the length of the viewed memory range in bytes.
@@ -108,7 +108,7 @@ namespace etools::memory {
         *
         * @post Returns the same value that was passed at construction.
         */
-        inline std::size_t size() const noexcept;
+        [[nodiscard]] inline std::size_t size() const noexcept;
 
         /// Default copy constructor (trivial shallow copy).
         envelope_view(const envelope_view&) = default;
