@@ -117,7 +117,7 @@ TEST(BufferViewTest, Constructor_Nullptr_ZeroSize_Legal) {
 
 TEST(BufferViewTest, MultipleUnpackCalls_AreIndependent) {
     // unpack() is documented as non-mutating on the viewed range. Calling
-    // it twice on the same view must yield identical results — there's no
+    // it twice on the same view must yield identical results - there's no
     // "consumed bytes" pointer hiding inside the view.
     std::byte buffer[64]{};
     size_t data_size = eser::flat::serialize(11, 22).to(buffer);
@@ -136,7 +136,7 @@ TEST(BufferViewTest, MultipleUnpackCalls_AreIndependent) {
 
 TEST(BufferViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
     // A view is a non-owning value type. Two views built on the same buffer
-    // should be interchangeable — no hidden per-view state.
+    // should be interchangeable - no hidden per-view state.
     std::byte buffer[64]{};
     size_t data_size = eser::flat::serialize(double{3.14}, char{'M'}).to(buffer);
 

@@ -171,11 +171,11 @@ namespace etools::factories{
             */
             dispatch_factory() = default;
 
-            /// @brief Deleted copy constructor — the factory owns in-place storage.
+            /// @brief Deleted copy constructor - the factory owns in-place storage.
             dispatch_factory(const dispatch_factory&) = delete;
             /// @brief Deleted copy assignment operator.
             dispatch_factory& operator=(const dispatch_factory&) = delete;
-            /// @brief Deleted move constructor — pinned type; relocating live objects is unsupported.
+            /// @brief Deleted move constructor - pinned type; relocating live objects is unsupported.
             dispatch_factory(dispatch_factory&&) = delete;
             /// @brief Deleted move assignment operator.
             dispatch_factory& operator=(dispatch_factory&&) = delete;

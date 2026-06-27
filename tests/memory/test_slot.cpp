@@ -188,7 +188,7 @@ TEST_F(SlotTest, SeparateInstances_AreIndependent) {
     a.emplace(1);
     b.emplace(2);
 
-    // Distinct storage, distinct values — the whole point of the value-type rework.
+    // Distinct storage, distinct values - the whole point of the value-type rework.
     EXPECT_NE(static_cast<void*>(&*a), static_cast<void*>(&*b));
     EXPECT_EQ(a->value, 1);
     EXPECT_EQ(b->value, 2);

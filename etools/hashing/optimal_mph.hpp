@@ -25,10 +25,10 @@
 * **Selection heuristic (integer math, all at compile time)**
 *
 * Let:
-*  - `N = sizeof...(Keys)` — number of keys;
-*  - `K = max_key + 1` — span of the value domain;
-*  - `index_t = meta::smallest_uint_t<N>` — per-entry index type;
-*  - `α ~ 3` — conservative total-slots factor for FKS.
+*  - `N = sizeof...(Keys)` - number of keys;
+*  - `K = max_key + 1` - span of the value domain;
+*  - `index_t = meta::smallest_uint_t<N>` - per-entry index type;
+*  - `α ~ 3` - conservative total-slots factor for FKS.
 *
 * We approximate:
 *  - `LLUT_mem ~ K * sizeof(index_t)`
@@ -41,11 +41,11 @@
 *  - Call `optimal_mph<Key>::instance<Keys...>()` to get a `constexpr const&`
 *    to the canonical MPHF object. The returned object exposes a uniform
 *    cross-backend surface:
-*      - `operator()(key)` — O(1) lookup, returns dense index or `not_found()`.
-*      - `size()`          — number of registered keys (= N).
-*      - `capacity()`      — underlying storage footprint (`max(Keys)+1` for
+*      - `operator()(key)` - O(1) lookup, returns dense index or `not_found()`.
+*      - `size()`          - number of registered keys (= N).
+*      - `capacity()`      - underlying storage footprint (`max(Keys)+1` for
 *                            LLUT; total second-level slots for FKS).
-*      - `not_found()`     — sentinel value (= `size()`).
+*      - `not_found()`     - sentinel value (= `size()`).
 *    (Do not rely on backend-specific members beyond this contract.)
 *
 * **Example**
@@ -136,7 +136,7 @@ namespace etools::hashing{
         [[nodiscard]] static constexpr const auto& instance() noexcept;
 
         /**
-        * @brief Deleted default constructor — this facade is not meant to be instantiated.
+        * @brief Deleted default constructor - this facade is not meant to be instantiated.
         */
         optimal_mph() = delete;
 

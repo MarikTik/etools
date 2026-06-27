@@ -60,7 +60,7 @@ namespace etools::memory {
         * @pre `data` either points to at least `size` valid bytes, or is `nullptr` with `size == 0`.
         * @post `this->data() == data` and `this->size() == size`.
         *
-        * @note `noexcept` — the constructor stores the pointer and size only.
+        * @note `noexcept` - the constructor stores the pointer and size only.
         * @warning No null-check or bounds-check is performed. Passing a non-null
         *          `data` with `size` larger than the buffer is undefined behaviour
         *          on any subsequent `unpack()`.
@@ -78,7 +78,7 @@ namespace etools::memory {
         *         (`sizeof(Ts) + ...`); otherwise an engaged optional holding the tuple.
         *
         * @note Strictly all-or-nothing: a viewed range too short for `Ts...` yields
-        *       `nullopt` and reads nothing — there is no partial/zero fill.
+        *       `nullopt` and reads nothing - there is no partial/zero fill.
         * @note Does not modify the viewed range.
         */
         template<typename ...Ts>
@@ -99,7 +99,7 @@ namespace etools::memory {
         /**
         * @brief Returns the length of the viewed memory range in bytes.
         *
-        * The view does not distinguish "used" from "total" bytes — it is a
+        * The view does not distinguish "used" from "total" bytes - it is a
         * fixed read-only window over an externally-owned buffer, so the only
         * meaningful length is the size passed at construction. Matches the
         * `std::string_view::size()` / `std::span::size()` convention.

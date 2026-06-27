@@ -12,11 +12,11 @@
 * of integral/enum-like keys into dense indices `[0..N-1]` without hashing or branching.
 *
 * #### Components
-* - `etools::hashing::details::llut_impl<Key, Keys...>` — the immutable, constexpr-constructible
+* - `etools::hashing::details::llut_impl<Key, Keys...>` - the immutable, constexpr-constructible
 *   implementation type. It owns a direct-indexed `std::array` of length `max(Keys) + 1`.
 *   Present keys map to their dense indices (defined by pack order), and holes store a
 *   sentinel equal to `N = sizeof...(Keys)`.
-* - `etools::hashing::llut<Key>` — a thin facade that returns a reference to a canonical
+* - `etools::hashing::llut<Key>` - a thin facade that returns a reference to a canonical
 *   `inline constexpr` singleton `llut_impl<Key, Keys...>` via `generate<Keys...>()`.
 *
 * #### Design notes
@@ -53,7 +53,7 @@
 * dependencies
 * This file expects:
 * - `meta::tpack_max<Key, Keys...>()` returning the maximum of `Keys...` at compile time.
-* - `meta::smallest_uint_t<N>` — smallest unsigned type that can represent `[0..N]`.
+* - `meta::smallest_uint_t<N>` - smallest unsigned type that can represent `[0..N]`.
 * - Optionally, `meta::all_distinct(std::array<Key, N>)` for pairwise distinctness checking.
 *
 * Define `ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK` to skip the distinctness assertion.
@@ -249,7 +249,7 @@ namespace etools::hashing {
         [[nodiscard]] static constexpr const details::llut_impl<KeyType, Keys...>& instance() noexcept;
 
         /**
-        * @brief Deleted default constructor — this facade is not meant to be instantiated.
+        * @brief Deleted default constructor - this facade is not meant to be instantiated.
         */
         llut() = delete;
 

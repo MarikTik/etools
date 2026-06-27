@@ -1,4 +1,4 @@
-# etools — Embedded C++17 Utility Library
+# etools - Embedded C++17 Utility Library
 
 
 etools is a collection of lightweight, header-only C++17 utilities designed for embedded platforms. It provides meta‑programming helpers, type traits, and small generic building blocks to fill gaps in minimal STL environments. All utilities are zero‑overhead abstractions and require no multithreaded synchronization.

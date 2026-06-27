@@ -133,9 +133,9 @@ struct triple_ctor : base {
 
     // by-value
     explicit triple_ctor(std::string v) : s(std::move(v)), which(taken::by_value) {}
-    // const lvalue ref — only picked when the call site has a const lvalue
+    // const lvalue ref - only picked when the call site has a const lvalue
     explicit triple_ctor(const std::string& v, int /*tag*/) : s(v), which(taken::by_cref) {}
-    // rvalue ref — only picked for explicit rvalue with the tag overload
+    // rvalue ref - only picked for explicit rvalue with the tag overload
     explicit triple_ctor(std::string&& v, double /*tag*/) noexcept
         : s(std::move(v)), which(taken::by_rvalue) {}
 
@@ -234,7 +234,7 @@ TEST(DispatchFactoryCompile, EmplaceIsNoexcept) {
 }
 
 TEST(DispatchFactoryCompile, HeterogeneousConstructorSignaturesAllRegisterable) {
-    // a8 default, b8(int), c8(string) — exercises the if-constexpr SFINAE
+    // a8 default, b8(int), c8(string) - exercises the if-constexpr SFINAE
     // branch in try_emplace_if_constructible.
     using f = factory<a8, b8, c8>;
     static_assert(sizeof(f) > 0, "type must instantiate");
@@ -267,7 +267,7 @@ TEST(DispatchFactoryCompile, MphSurfaceIsBackendAgnostic) {
 }
 
 // ===========================================================================
-// Runtime — construction basics
+// Runtime - construction basics
 // ===========================================================================
 
 TEST(DispatchFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
@@ -375,7 +375,7 @@ TEST(DispatchFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
 }
 
 // ===========================================================================
-// Runtime — perfect forwarding
+// Runtime - perfect forwarding
 // ===========================================================================
 
 TEST(DispatchFactoryForwarding, StringLvalue_PicksCopyCtor) {
@@ -514,7 +514,7 @@ TEST(DispatchFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
 }
 
 // ===========================================================================
-// Runtime — lifecycle (replacement, repeated emplace, ctor/dtor counts)
+// Runtime - lifecycle (replacement, repeated emplace, ctor/dtor counts)
 // ===========================================================================
 
 TEST(DispatchFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
@@ -568,7 +568,7 @@ TEST(DispatchFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
 }
 
 // ===========================================================================
-// Runtime — boundary and scale
+// Runtime - boundary and scale
 // ===========================================================================
 
 TEST(DispatchFactoryBoundary, KeyZero_Works) {
@@ -628,7 +628,7 @@ TEST(DispatchFactoryBoundary, LargeTypelist_SparseKeys) {
 }
 
 // ===========================================================================
-// Runtime — nullptr paths
+// Runtime - nullptr paths
 // ===========================================================================
 
 TEST(DispatchFactoryNullptr, UnknownKey_SmallSet_ReturnsNullptr) {
@@ -654,7 +654,7 @@ TEST(DispatchFactoryNullptr, ArgMismatch_NoSlotConstructible) {
     factory<a8, b8, c8> f;
 
     // a8 takes no args, b8 takes int, c8 takes string. A double argument
-    // matches no constructor — the fold's if-constexpr branches all return
+    // matches no constructor - the fold's if-constexpr branches all return
     // false and the dispatch returns nullptr without constructing anything.
     EXPECT_EQ(f.emplace(a8::key, 3.14), nullptr);
 }
@@ -682,7 +682,7 @@ TEST(DispatchFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
 TEST(DispatchFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
     factory<b8> f;
 
-    // b8 takes int, not unique_ptr. Pass an rvalue unique_ptr — the
+    // b8 takes int, not unique_ptr. Pass an rvalue unique_ptr - the
     // dispatch finds no matching ctor, returns nullptr, and *must not*
     // have moved-from our unique_ptr because no construction happened.
     auto up = std::make_unique<int>(99);

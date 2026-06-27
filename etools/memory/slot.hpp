@@ -11,7 +11,7 @@
 *
 * A `slot<T>` owns an aligned, correctly-sized byte buffer and manages the lifetime of at
 * most one `T` constructed in-place within it (via placement new). It is a **value type**:
-* each `slot<T>` object owns its own storage, exactly like `std::optional<T>` — two `slot<T>`
+* each `slot<T>` object owns its own storage, exactly like `std::optional<T>` - two `slot<T>`
 * objects are independent. Construct as many as you need, wherever you need them (stack,
 * static, as a member of a larger aggregate). There is no global/singleton storage.
 *
@@ -23,14 +23,14 @@
 * ### Why this exists alongside `std::optional`
 * As it stands, `slot<T>` is largely `std::optional<T>` with relocate-on-move semantics
 * (a moved-from slot is left *empty*) and a nothrow-destructible requirement. If all you
-* need today is an in-place optional cell, prefer `std::optional` — it is the better-tested,
+* need today is an in-place optional cell, prefer `std::optional` - it is the better-tested,
 * zero-maintenance choice, and `dispatch_factory` uses it for exactly that reason.
 *
 * `slot` is kept as an in-house primitive because it is really a **blueprint for a future
 * pool slot**: the cell type a fixed-capacity memory pool would compose. A pool tracks
 * occupancy externally (a free list or bitmap) and can fold the free-list link into a cell's
 * dead storage, so the eventual pool slot **will not need the per-object `_constructed` flag
-* carried here** — nor will it want `std::optional`'s mandatory discriminant or its
+* carried here** - nor will it want `std::optional`'s mandatory discriminant or its
 * engaged-but-moved-from semantics. The `_constructed` flag in this version exists only so a
 * *standalone* `slot` is self-contained and correct; it is the part a pool would drop. The
 * relocate-empties move and the nothrow-dtor guard, by contrast, are the pool-cell semantics
@@ -58,7 +58,7 @@
 *        `std::optional`-shaped access surface.
 * - 2026-06-23
 *      - API trim toward the `std::optional` model. Removed `construct()` (it was
-*        `emplace()` plus a debug-only assert — a tripwire callers can't see). Removed
+*        `emplace()` plus a debug-only assert - a tripwire callers can't see). Removed
 *        the `get()` accessors (nullable raw-pointer access is a smart-pointer idiom that
 *        invites unchecked deref; `operator bool` + `operator*` already cover safe access).
 *        Renamed `destroy()` to `reset()` to match `std::optional`. `emplace()` now returns
@@ -92,7 +92,7 @@ namespace etools::memory {
         * Holds the aligned buffer and engaged flag, and implements all lifecycle operations.
         * The move special members are **user-provided** here because a `slot` must *relocate*
         * the contained object (move-construct a new `T` at the destination), not byte-copy the
-        * buffer — a defaulted move would memcpy and break any `T` with internal pointers.
+        * buffer - a defaulted move would memcpy and break any `T` with internal pointers.
         *
         * Conditional deletion of those move members (when `T` is not move-constructible) is
         * layered on top by `slot_move_ctrl`; see that type. This split is the standard-library
@@ -210,7 +210,7 @@ namespace etools::memory {
     * @invariant `_constructed == true` iff `_mem` currently contains a live `T`.
     *
     * @warning
-    * - `reset()` is idempotent — calling it on an empty slot is a no-op.
+    * - `reset()` is idempotent - calling it on an empty slot is a no-op.
     * - `operator*` / `operator->` have a precondition that the slot is engaged; they
     *   assert in debug builds. Check `has_value()` (or `operator bool`) first when the
     *   state is unknown.
@@ -281,7 +281,7 @@ namespace etools::memory {
         [[nodiscard]] inline bool has_value() const noexcept;
 
         /**
-        * @brief Boolean conversion — equivalent to `has_value()`.
+        * @brief Boolean conversion - equivalent to `has_value()`.
         *
         * @return `true` iff the slot is engaged.
         * @note `explicit` to avoid accidental integral conversions.

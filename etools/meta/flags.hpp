@@ -21,7 +21,7 @@
 * C++ `enum class` types deliberately forbid implicit integer conversions and
 * therefore do not participate in bitwise operations. This is desirable for
 * domain enums (e.g. `state::idle`, `state::running`) but inconvenient when the
-* enum is genuinely a bitmask — header flags, feature toggles, error masks.
+* enum is genuinely a bitmask - header flags, feature toggles, error masks.
 *
 * This header provides a single, type-safe mechanism to opt a specific
 * `enum class` into bitwise behavior, plus two introspection helpers to walk
@@ -55,9 +55,9 @@
 * - Bitwise operator overloads:
 *   `operator|`, `operator|=`, `operator&`, `operator&=`,
 *   `operator^`, `operator^=`, `operator~`.
-* - `enumerate_flags(value)`: positional listing — index `i` of the returned
+* - `enumerate_flags(value)`: positional listing - index `i` of the returned
 *   array is non-zero iff bit `i` is set in `value`.
-* - `extract_flags(value)`: compacted listing — the set bits are placed at the
+* - `extract_flags(value)`: compacted listing - the set bits are placed at the
 *   front of the returned array, and the count of set bits is returned
 *   alongside it.
 *
@@ -249,7 +249,7 @@ namespace etools::meta {
     *   - the single-bit `Enum` value `Enum(1u << i)` if bit `i` is set;
     *   - `Enum(0)` otherwise.
     *
-    * Element positions are preserved — unlike `extract_flags`, set bits are
+    * Element positions are preserved - unlike `extract_flags`, set bits are
     * *not* compacted toward the front. This makes the result suitable for
     * code that needs to know *which* bit was set, not just how many.
     *
@@ -267,7 +267,7 @@ namespace etools::meta {
     *       function body; violations produce a diagnostic at instantiation.
     * @note `Size` may legitimately be smaller than the full underlying width
     *       when the caller knows that only the low `Size` bits are
-    *       meaningful — this trims the returned array and the loop.
+    *       meaningful - this trims the returned array and the loop.
     *
     * ## Example
     * @code

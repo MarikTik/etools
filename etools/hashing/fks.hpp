@@ -16,7 +16,7 @@
 *
 * **Why this exists**
 * - Constant-time membership and indexing for *fixed* key sets
-* - Completely static/constexpr — lives in ROM/Flash on embedded targets
+* - Completely static/constexpr - lives in ROM/Flash on embedded targets
 * - No dynamic allocation, no runtime initialization order issues
 *
 * **How it works (high-level)**
@@ -29,9 +29,9 @@
 *   a local position and verify the original key.
 *
 * **Surface**
-* - `etools::hashing::fks<Key>` — Facade. Use `fks<Key>::instance<Keys...>()` to
+* - `etools::hashing::fks<Key>` - Facade. Use `fks<Key>::instance<Keys...>()` to
 *   obtain a `constexpr const&` to the canonical, per-key-set singleton.
-* - `etools::hashing::details::fks_impl<Key, Keys...>` — implementation. Immutable,
+* - `etools::hashing::details::fks_impl<Key, Keys...>` - implementation. Immutable,
 *   constexpr-constructible structure that owns the arrays and exposes `operator()`,
 *   `size()`, `capacity()`, `not_found()`, and `buckets()`.
 *
@@ -240,7 +240,7 @@ namespace etools::hashing {
             /**
             * @brief Total slots across all second-level tables.
             *
-            * Cross-backend contract: matches `llut::capacity()` — the underlying storage
+            * Cross-backend contract: matches `llut::capacity()` - the underlying storage
             * footprint of the structure, independent of `size()`.
             *
             * @return `Σ_b (1 << r_b)` with `r_b` chosen per bucket.
@@ -391,7 +391,7 @@ namespace etools::hashing {
         * @tparam Keys Distinct keys; pack order defines indices.
         *
         * @note `inline constexpr` variable template with static storage duration.
-        * @warning Internal — prefer using the facade `fks<Key>::instance<Keys...>()`.
+        * @warning Internal - prefer using the facade `fks<Key>::instance<Keys...>()`.
         */
         template <typename Key, Key... Keys>
         inline constexpr auto fks_impl_singleton = make_fks_impl<Key, Keys...>();
@@ -432,7 +432,7 @@ namespace etools::hashing {
         [[nodiscard]] static constexpr const details::fks_impl<KeyType, Keys...>& instance() noexcept;
         
         /**
-        * @brief Deleted default constructor — this facade is not meant to be instantiated.
+        * @brief Deleted default constructor - this facade is not meant to be instantiated.
         */
         fks() = delete;
 

@@ -137,7 +137,7 @@ namespace etools::memory{
         *       `size()` and `capacity()`.
         * @post `other` is left in a moved-from state: `data()` is `nullptr`,
         *       `size()` is `0`, `capacity()` is `0`.
-        * @note `noexcept` — the operation only moves a `unique_ptr` and two `size_t`s.
+        * @note `noexcept` - the operation only moves a `unique_ptr` and two `size_t`s.
         */
         buffer(buffer&& other) noexcept;
 
@@ -151,7 +151,7 @@ namespace etools::memory{
         *
         * @post Same as the move constructor; `other` is left empty.
         * @post Self-assignment is a no-op (`*this` is unchanged).
-        * @note `noexcept` — `unique_ptr` move-assignment is `noexcept`.
+        * @note `noexcept` - `unique_ptr` move-assignment is `noexcept`.
         */
         buffer& operator=(buffer&& other) noexcept;
 
@@ -166,7 +166,7 @@ namespace etools::memory{
         *         (`sizeof(Ts) + ...`); otherwise an engaged optional holding the tuple.
         *
         * @note Strictly all-or-nothing: a buffer too short for `Ts...` yields `nullopt`
-        *       and reads nothing — there is no partial/zero fill.
+        *       and reads nothing - there is no partial/zero fill.
         * @note Does not modify the buffer.
         */
         template<typename... Ts>
@@ -224,10 +224,10 @@ namespace etools::memory{
         */
         [[nodiscard]] inline std::size_t capacity() const noexcept;
 
-        /// Deleted copy constructor — buffer is a unique-ownership type.
+        /// Deleted copy constructor - buffer is a unique-ownership type.
         buffer(const buffer&) = delete;
 
-        /// Deleted copy assignment operator — buffer is a unique-ownership type.
+        /// Deleted copy assignment operator - buffer is a unique-ownership type.
         buffer& operator=(const buffer&) = delete;
     private:
         /// Owned buffer. Null when moved-from or default-constructed.

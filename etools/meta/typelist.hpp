@@ -6,12 +6,12 @@
 *
 * @ingroup etools_meta etools::meta
 *
-* This header introduces the `etools::meta::typelist` struct — a utility
+* This header introduces the `etools::meta::typelist` struct - a utility
 * that encapsulates a sequence of types at compile time. It is designed for use
 * in template metaprogramming, compile-time dispatch, and type-based computation.
 *
 * Unlike `std::tuple`, this structure does not instantiate objects or store any
-* data — it only carries type information and can be used for operations such as
+* data - it only carries type information and can be used for operations such as
 * indexing, filtering, and expansion.
 *
 * @note This utility is conceptually similar to `type_list` in other metaprogramming libraries.

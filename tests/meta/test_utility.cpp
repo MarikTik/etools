@@ -24,7 +24,7 @@ TEST(TPackMax, RuntimeSanity) {
 }
 
 // ===========================================================
-// all_distinct_bitmap — ≤16‑bit keys, array-based, constexpr
+// all_distinct_bitmap - ≤16‑bit keys, array-based, constexpr
 // ===========================================================
 
 TEST(AllDistinctBitmap, EmptyAndSingleton) {
@@ -62,7 +62,7 @@ TEST(AllDistinctBitmap, DuplicateUint16_Run) {
 }
 
 // ======================================================
-// all_distinct_probe — generic (32/64‑bit), array-based
+// all_distinct_probe - generic (32/64‑bit), array-based
 // ======================================================
 
 TEST(AllDistinctProbe, DistinctUint32_CompileAndRun) {
@@ -88,7 +88,7 @@ TEST(AllDistinctProbe, DuplicateUint64_Run) {
 }
 
 // ==================================================
-// all_distinct_fast — dispatcher, array-based tests
+// all_distinct_fast - dispatcher, array-based tests
 // ==================================================
 
 TEST(AllDistinctFast, DispatchesToBitmapForUint8_CompileAndRun) {

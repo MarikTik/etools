@@ -39,7 +39,7 @@ TEST(BufferTest, Pack_ReturnsBytesWritten) {
 
 TEST(BufferTest, Pack_TooSmall_ReturnsZeroAndWritesNothing) {
     // Capacity 2 cannot hold an int (4 bytes); the serializer writes nothing and
-    // returns 0. (Release/NDEBUG behavior — this TU is compiled with NDEBUG.)
+    // returns 0. (Release/NDEBUG behavior - this TU is compiled with NDEBUG.)
     etools::memory::buffer b{std::make_unique<std::byte[]>(2), 2};
     std::size_t n = b.pack(int{123456});
     EXPECT_EQ(n, 0u);
@@ -263,7 +263,7 @@ TEST(BufferTest, MoveAssign_SelfMoveIsNoop) {
 
 TEST(BufferTest, ConstructWithPrepopulatedSize_AtCapacityIsLegal) {
     // The (data, capacity, size) ctor's precondition is `size <= capacity`.
-    // size == capacity is the boundary case — it must not assert.
+    // size == capacity is the boundary case - it must not assert.
     constexpr std::size_t cap = 8;
     auto buf = std::make_unique<std::byte[]>(cap);
     etools::memory::buffer env(std::move(buf), cap, cap);
@@ -272,7 +272,7 @@ TEST(BufferTest, ConstructWithPrepopulatedSize_AtCapacityIsLegal) {
 }
 
 TEST(BufferTest, ConstructWithPrepopulatedSize_ZeroSizeIsLegal) {
-    // size == 0 with capacity > 0 is the other boundary — equivalent to
+    // size == 0 with capacity > 0 is the other boundary - equivalent to
     // the two-arg constructor and must not assert.
     constexpr std::size_t cap = 8;
     auto buf = std::make_unique<std::byte[]>(cap);
