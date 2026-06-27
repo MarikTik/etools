@@ -40,7 +40,7 @@ include(FetchContent)
 FetchContent_Declare(
     eser
     GIT_REPOSITORY https://github.com/MarikTik/eser.git
-    GIT_TAG main
+    GIT_TAG v1.1.0
 )
 FetchContent_MakeAvailable(eser)
 
