@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <eser/flat/serializer.hpp>
-#include <etools/memory/envelope_view.hpp>
+#include <etools/memory/buffer_view.hpp>
 #include <type_traits>
 struct Message {
     int id;
@@ -12,22 +12,22 @@ struct Message {
 static_assert(std::is_trivially_copyable_v<Message>);
 
 
-// --- Google Test suite for envelope_view ---
+// --- Google Test suite for buffer_view ---
 
-TEST(EnvelopeViewTest, Constructor_Positive) {
+TEST(BufferViewTest, Constructor_Positive) {
     // Manually create a buffer and serialize data into it.
     std::byte buffer[100]{};
     size_t data_size = eser::flat::serialize(42, 3.14f).to(buffer);
 
     // Create a view from the data.
-    etools::memory::envelope_view view(buffer, data_size);
+    etools::memory::buffer_view view(buffer, data_size);
 
     // Verify the view's data and size are correctly set.
     EXPECT_EQ(view.data(), buffer);
     EXPECT_EQ(view.size(), data_size);
 }
 
-TEST(EnvelopeViewTest, UnpackScalar_Positive) {
+TEST(BufferViewTest, UnpackScalar_Positive) {
     // Manually create a buffer and serialize data into it.
     std::byte buffer[100]{};
     int a = 100;
@@ -35,7 +35,7 @@ TEST(EnvelopeViewTest, UnpackScalar_Positive) {
     size_t data_size = eser::flat::serialize(a, b).to(buffer);
 
     // Create a view from the serialized data.
-    etools::memory::envelope_view view(buffer, data_size);
+    etools::memory::buffer_view view(buffer, data_size);
 
     // Unpack the data from the view.
     auto unpacked = view.unpack<int, float>();
@@ -47,14 +47,14 @@ TEST(EnvelopeViewTest, UnpackScalar_Positive) {
     EXPECT_FLOAT_EQ(unpacked_b, b);
 }
 
-TEST(EnvelopeViewTest, UnpackStruct_Positive) {
+TEST(BufferViewTest, UnpackStruct_Positive) {
     // Manually create a buffer and serialize data into it.
     std::byte buffer[100]{};
     Message m = {123, 99.9f};
     size_t data_size = eser::flat::serialize(m).to(buffer);
 
     // Create a view from the serialized data.
-    etools::memory::envelope_view view(buffer, data_size);
+    etools::memory::buffer_view view(buffer, data_size);
 
     // Unpack the data from the view.
     auto unpacked = view.unpack<Message>();
@@ -65,39 +65,39 @@ TEST(EnvelopeViewTest, UnpackStruct_Positive) {
     EXPECT_EQ(unpacked_m, m);
 }
 
-TEST(EnvelopeViewTest, CopySemantics_Positive) {
+TEST(BufferViewTest, CopySemantics_Positive) {
     std::byte buffer[100]{};
     size_t data_size = eser::flat::serialize(1, 2, 3).to(buffer);
 
-    etools::memory::envelope_view view1(buffer, data_size);
+    etools::memory::buffer_view view1(buffer, data_size);
     const std::byte* original_data_ptr = view1.data();
 
     // Test copy constructor (trivial shallow copy).
-    etools::memory::envelope_view view2 = view1;
+    etools::memory::buffer_view view2 = view1;
     EXPECT_EQ(view2.data(), original_data_ptr);
     EXPECT_EQ(view2.size(), data_size);
 
     // Test copy assignment.
-    etools::memory::envelope_view view3(nullptr, 0);
+    etools::memory::buffer_view view3(nullptr, 0);
     view3 = view1;
     EXPECT_EQ(view3.data(), original_data_ptr);
     EXPECT_EQ(view3.size(), data_size);
 }
 
-TEST(EnvelopeViewTest, MoveSemantics_Positive) {
+TEST(BufferViewTest, MoveSemantics_Positive) {
     std::byte buffer[100]{};
     size_t data_size = eser::flat::serialize(1.0, 2.0, 3.0).to(buffer);
 
-    etools::memory::envelope_view view1(buffer, data_size);
+    etools::memory::buffer_view view1(buffer, data_size);
     const std::byte* original_data_ptr = view1.data();
 
     // Test move constructor (should be a shallow copy, not a move).
-    etools::memory::envelope_view view2 = std::move(view1);
+    etools::memory::buffer_view view2 = std::move(view1);
     EXPECT_EQ(view2.data(), original_data_ptr);
     EXPECT_EQ(view2.size(), data_size);
 
     // Test move assignment.
-    etools::memory::envelope_view view3(nullptr, 0);
+    etools::memory::buffer_view view3(nullptr, 0);
     view3 = std::move(view2);
     EXPECT_EQ(view3.data(), original_data_ptr);
     EXPECT_EQ(view3.size(), data_size);
@@ -105,24 +105,24 @@ TEST(EnvelopeViewTest, MoveSemantics_Positive) {
 
 // --- Degenerate / boundary inputs ----------------------------------------
 
-TEST(EnvelopeViewTest, Constructor_Nullptr_ZeroSize_Legal) {
+TEST(BufferViewTest, Constructor_Nullptr_ZeroSize_Legal) {
     // The constructor's documented precondition is "data either points to at
     // least size valid bytes, or is nullptr with size == 0". The degenerate
     // (nullptr, 0) form must construct cleanly and is useful as a default-
     // initialized placeholder before a real view is assigned in.
-    etools::memory::envelope_view v(nullptr, 0);
+    etools::memory::buffer_view v(nullptr, 0);
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_EQ(v.size(), 0u);
 }
 
-TEST(EnvelopeViewTest, MultipleUnpackCalls_AreIndependent) {
+TEST(BufferViewTest, MultipleUnpackCalls_AreIndependent) {
     // unpack() is documented as non-mutating on the viewed range. Calling
     // it twice on the same view must yield identical results — there's no
     // "consumed bytes" pointer hiding inside the view.
     std::byte buffer[64]{};
     size_t data_size = eser::flat::serialize(11, 22).to(buffer);
 
-    etools::memory::envelope_view v(buffer, data_size);
+    etools::memory::buffer_view v(buffer, data_size);
     auto first = v.unpack<int, int>();
     auto second = v.unpack<int, int>();
     ASSERT_TRUE(first.has_value());
@@ -134,14 +134,14 @@ TEST(EnvelopeViewTest, MultipleUnpackCalls_AreIndependent) {
     EXPECT_EQ(a2, 11); EXPECT_EQ(b2, 22);
 }
 
-TEST(EnvelopeViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
+TEST(BufferViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
     // A view is a non-owning value type. Two views built on the same buffer
     // should be interchangeable — no hidden per-view state.
     std::byte buffer[64]{};
     size_t data_size = eser::flat::serialize(double{3.14}, char{'M'}).to(buffer);
 
-    etools::memory::envelope_view v_a(buffer, data_size);
-    etools::memory::envelope_view v_b(buffer, data_size);
+    etools::memory::buffer_view v_a(buffer, data_size);
+    etools::memory::buffer_view v_b(buffer, data_size);
 
     EXPECT_EQ(v_a.data(), v_b.data());
     EXPECT_EQ(v_a.size(), v_b.size());
@@ -158,20 +158,20 @@ TEST(EnvelopeViewTest, TwoViewsOverSameBuffer_AgreeOnContents) {
 
 // --- Compile-time properties --------------------------------------------
 
-TEST(EnvelopeViewCompile, TriviallyCopyableAndMovable) {
+TEST(BufferViewCompile, TriviallyCopyableAndMovable) {
     // The class-level invariant claims trivial copyability/movability.
     // Lock that in so any future addition of a non-trivial member trips it.
-    static_assert(std::is_trivially_copyable_v<etools::memory::envelope_view>,
-        "envelope_view must remain trivially copyable");
-    static_assert(std::is_trivially_destructible_v<etools::memory::envelope_view>,
-        "envelope_view must remain trivially destructible");
-    static_assert(std::is_nothrow_move_constructible_v<etools::memory::envelope_view>,
-        "envelope_view must be nothrow movable");
+    static_assert(std::is_trivially_copyable_v<etools::memory::buffer_view>,
+        "buffer_view must remain trivially copyable");
+    static_assert(std::is_trivially_destructible_v<etools::memory::buffer_view>,
+        "buffer_view must remain trivially destructible");
+    static_assert(std::is_nothrow_move_constructible_v<etools::memory::buffer_view>,
+        "buffer_view must be nothrow movable");
 }
 
-TEST(EnvelopeViewCompile, DataReturnsConstByteStar) {
+TEST(BufferViewCompile, DataReturnsConstByteStar) {
     static_assert(std::is_same_v<
-        decltype(std::declval<const etools::memory::envelope_view&>().data()),
+        decltype(std::declval<const etools::memory::buffer_view&>().data()),
         const std::byte*>,
         "data() must return const std::byte*");
 }
