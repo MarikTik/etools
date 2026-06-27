@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 /**
-* @file envelope_view.hpp
+* @file buffer_view.hpp
 *
-* @brief Declares the `envelope_view` class used for non-owning, read-only access to envelope contents.
+* @brief Declares the `buffer_view` class used for non-owning, read-only access to buffer contents.
 *
 * @ingroup etools_memory etools::memory
 *
-* The `envelope_view` class provides a lightweight, read-only interface to serialized data.
-* It does not manage or own memory, making it suitable for inspecting the contents of an envelope
+* The `buffer_view` class provides a lightweight, read-only interface to serialized data.
+* It does not manage or own memory, making it suitable for inspecting the contents of a buffer
 * without copying or taking ownership.
 *
-* This class complements `etools::memory::envelope` by supporting a view-like access pattern
+* This class complements `etools::memory::buffer` by supporting a view-like access pattern
 * similar to `std::string_view` or `std::span`, while maintaining unpacking functionality.
 *
 * @note This class is trivially copyable and moveable.
@@ -23,8 +23,8 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
-#ifndef ETOOLS_MEMORY_ENVELOPE_VIEW_HPP_
-#define ETOOLS_MEMORY_ENVELOPE_VIEW_HPP_
+#ifndef ETOOLS_MEMORY_BUFFER_VIEW_HPP_
+#define ETOOLS_MEMORY_BUFFER_VIEW_HPP_
 #include <cstddef>
 #include <tuple>
 #include <optional>
@@ -32,12 +32,12 @@
 namespace etools::memory {
 
     /**
-    * @class envelope_view
+    * @class buffer_view
     * @brief Non-owning, read-only view over a serialized byte buffer.
     *
-    * The `envelope_view` class provides non-owning access to a contiguous memory buffer
+    * The `buffer_view` class provides non-owning access to a contiguous memory buffer
     * containing serialized values. It allows unpacking typed data using the same API as
-    * `envelope`, but without memory management overhead.
+    * `buffer`, but without memory management overhead.
     *
     * This class is useful when deserializing incoming data that is managed externally
     * (e.g., received over the network or passed by reference).
@@ -46,13 +46,13 @@ namespace etools::memory {
     *            owned externally. The view never modifies, allocates, or deallocates.
     * @invariant Trivially copyable, trivially movable, trivially destructible.
     *
-    * @warning The lifetime of the pointed-to memory must exceed that of the envelope_view.
+    * @warning The lifetime of the pointed-to memory must exceed that of the buffer_view.
     *          The class does not perform bounds checking or memory safety.
     */
-    class envelope_view{
+    class buffer_view{
     public:
         /**
-        * @brief Constructs an envelope_view from a raw data pointer and the length of the viewed range.
+        * @brief Constructs a buffer_view from a raw data pointer and the length of the viewed range.
         *
         * @param data A pointer to the external memory block (must remain valid during use).
         * @param size The length of the viewed range in bytes.
@@ -65,10 +65,10 @@ namespace etools::memory {
         *          `data` with `size` larger than the buffer is undefined behaviour
         *          on any subsequent `unpack()`.
         */
-        inline envelope_view(const std::byte* data, std::size_t size) noexcept;
+        inline buffer_view(const std::byte* data, std::size_t size) noexcept;
 
         /**
-        * @brief Unpacks the envelope contents into a tuple of typed values.
+        * @brief Unpacks the buffer contents into a tuple of typed values.
         *
         * Deserializes the buffer into strongly typed values via
         * `eser::flat::deserialize(...).to<std::tuple<Ts...>>()`.
@@ -111,13 +111,13 @@ namespace etools::memory {
         [[nodiscard]] inline std::size_t size() const noexcept;
 
         /// Default copy constructor (trivial shallow copy).
-        envelope_view(const envelope_view&) = default;
+        buffer_view(const buffer_view&) = default;
         /// Default copy assignment operator (trivial shallow copy).
-        envelope_view& operator=(const envelope_view&) = default;
+        buffer_view& operator=(const buffer_view&) = default;
         /// Move constructor (trivial shallow move).
-        envelope_view(envelope_view&&) = default;
+        buffer_view(buffer_view&&) = default;
         /// Move assignment operator (trivial shallow move).
-        envelope_view& operator=(envelope_view&&) = default;
+        buffer_view& operator=(buffer_view&&) = default;
         
     private:
         /// Pointer to the viewed byte range. Not owned.
@@ -127,5 +127,5 @@ namespace etools::memory {
         std::size_t _size;
     };
 }
-#include "envelope_view.tpp"
-#endif // ETOOLS_MEMORY_ENVELOPE_VIEW_HPP_
+#include "buffer_view.tpp"
+#endif // ETOOLS_MEMORY_BUFFER_VIEW_HPP_
