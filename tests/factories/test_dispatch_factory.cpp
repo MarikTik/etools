@@ -207,22 +207,19 @@ TEST(DispatchFactoryCompile, KeyTypeDeducedFromExtractor) {
     );
 }
 
-TEST(DispatchFactoryCompile, EmplaceReturnsBasePointer) {
+TEST(DispatchFactoryCompile, EmplaceReturnsOwningHandle) {
     using f = factory<a8, b8>;
     static_assert(
         std::is_same_v<
             decltype(std::declval<f&>().emplace(std::declval<std::uint8_t>())),
-            base*
+            f::handle
         >,
-        "emplace must return Base*"
+        "emplace must return the owning handle"
     );
-    static_assert(
-        std::is_same_v<
-            decltype(std::declval<f&>().emplace(std::declval<std::uint8_t>(), std::declval<int>())),
-            base*
-        >,
-        "emplace with int argument must still return Base*"
-    );
+    static_assert(std::is_same_v<f::handle::element_type, base>,
+        "handle points at Base");
+    static_assert(not std::is_copy_constructible_v<f::handle>,
+        "handle conveys unique ownership (move-only)");
 }
 
 TEST(DispatchFactoryCompile, EmplaceIsNoexcept) {
@@ -231,6 +228,19 @@ TEST(DispatchFactoryCompile, EmplaceIsNoexcept) {
                   "default-construct dispatch is noexcept");
     static_assert(noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>(), std::declval<int>())),
                   "int-arg dispatch is noexcept");
+}
+
+TEST(DispatchFactoryCompile, EmplaceNoexcept_IsConditionalOnSelectedCtor) {
+    // emplace's noexcept tracks the *forwarded* overload: c8(const std::string&) is not
+    // noexcept, c8(std::string&&) is. So the same registry is noexcept for an rvalue and
+    // not-noexcept for an lvalue, proving the spec is per-call and perfect-forwarding aware.
+    using f = factory<a8, c8>;
+    static_assert(not noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>(),
+                                                          std::declval<std::string&>())),
+                  "non-nothrow copy ctor makes emplace not noexcept");
+    static_assert(noexcept(std::declval<f&>().emplace(std::declval<std::uint8_t>(),
+                                                      std::declval<std::string>())),
+                  "nothrow move ctor keeps emplace noexcept");
 }
 
 TEST(DispatchFactoryCompile, HeterogeneousConstructorSignaturesAllRegisterable) {
@@ -273,10 +283,10 @@ TEST(DispatchFactoryCompile, MphSurfaceIsBackendAgnostic) {
 TEST(DispatchFactoryRuntime, EmplaceNoArgs_DefaultConstructs) {
     factory<a8> f;
 
-    base* p = f.emplace(a8::key);
+    auto p = f.emplace(a8::key);
     ASSERT_NE(p, nullptr);
     EXPECT_STREQ(p->tag(), "a8");
-    auto* a = dynamic_cast<a8*>(p);
+    auto* a = dynamic_cast<a8*>(p.get());
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->constructed, 1);
 }
@@ -285,9 +295,9 @@ TEST(DispatchFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
     b8::reset_counts();
     factory<b8> f;
 
-    base* p = f.emplace(b8::key, 123);
+    auto p = f.emplace(b8::key, 123);
     ASSERT_NE(p, nullptr);
-    auto* b = dynamic_cast<b8*>(p);
+    auto* b = dynamic_cast<b8*>(p.get());
     ASSERT_NE(b, nullptr);
     EXPECT_EQ(b->value, 123);
     EXPECT_EQ(b8::ctor_calls, 1);
@@ -297,9 +307,9 @@ TEST(DispatchFactoryRuntime, EmplaceWithSingleIntArg_StoresValue) {
 TEST(DispatchFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
     factory<h16> f;
 
-    base* p = f.emplace(h16::key, 5, 3.5);
+    auto p = f.emplace(h16::key, 5, 3.5);
     ASSERT_NE(p, nullptr);
-    auto* h = dynamic_cast<h16*>(p);
+    auto* h = dynamic_cast<h16*>(p.get());
     ASSERT_NE(h, nullptr);
     EXPECT_EQ(h->a, 5);
     EXPECT_DOUBLE_EQ(h->b, 3.5);
@@ -308,9 +318,9 @@ TEST(DispatchFactoryRuntime, EmplaceWithMultiArgCtor_StoresAll) {
 TEST(DispatchFactoryRuntime, BaseConversion_DynamicCastBack) {
     factory<g16> f;
 
-    base* p = f.emplace(g16::key);
+    auto p = f.emplace(g16::key);
     ASSERT_NE(p, nullptr);
-    auto* g = dynamic_cast<g16*>(p);
+    auto* g = dynamic_cast<g16*>(p.get());
     ASSERT_NE(g, nullptr);
     EXPECT_STREQ(g->tag(), "g16");
 }
@@ -318,9 +328,9 @@ TEST(DispatchFactoryRuntime, BaseConversion_DynamicCastBack) {
 TEST(DispatchFactoryRuntime, NonCopyableNonMovableType_DefaultConstruct) {
     factory<i_noncopyable> f;
 
-    base* p = f.emplace(i_noncopyable::key);
+    auto p = f.emplace(i_noncopyable::key);
     ASSERT_NE(p, nullptr);
-    auto* i = dynamic_cast<i_noncopyable*>(p);
+    auto* i = dynamic_cast<i_noncopyable*>(p.get());
     ASSERT_NE(i, nullptr);
     EXPECT_EQ(i->v, 7);
 }
@@ -329,9 +339,9 @@ TEST(DispatchFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
     b8::reset_counts();
     factory<a8, b8, c8> f;
 
-    base* pa = f.emplace(a8::key);
-    base* pb = f.emplace(b8::key, 77);
-    base* pc = f.emplace(c8::key, std::string("z"));
+    auto pa = f.emplace(a8::key);
+    auto pb = f.emplace(b8::key, 77);
+    auto pc = f.emplace(c8::key, std::string("z"));
 
     ASSERT_NE(pa, nullptr);
     ASSERT_NE(pb, nullptr);
@@ -347,15 +357,26 @@ TEST(DispatchFactoryRuntime, MultipleTypes_CoexistInDistinctSlots) {
     EXPECT_NE(pb, pc);
 }
 
-TEST(DispatchFactoryRuntime, DestructorDestroysOwnedObjects) {
+TEST(DispatchFactoryRuntime, HandleDrop_DestroysObject) {
     b8::reset_counts();
+    factory<b8> f;
     {
-        factory<b8> f;
-        ASSERT_NE(f.emplace(b8::key, 5), nullptr);
+        auto h = f.emplace(b8::key, 5);
+        ASSERT_NE(h, nullptr);
         EXPECT_EQ(b8::ctor_calls, 1);
-        EXPECT_EQ(b8::dtor_calls, 0);
-    } // factory destroyed here -> owned slot destroyed -> b8 destructed
-    EXPECT_EQ(b8::dtor_calls, 1) << "~dispatch_factory must destroy objects in its slots";
+        EXPECT_EQ(b8::dtor_calls, 0) << "object lives while the handle is held";
+    } // handle dropped here -> cell reset in place -> b8 destructed
+    EXPECT_EQ(b8::dtor_calls, 1) << "dropping the handle must destroy the object";
+}
+
+TEST(DispatchFactoryRuntime, IgnoredHandle_TearsDownAtEndOfStatement) {
+    // emplace is [[nodiscard]]; a discarded handle is a temporary that tears the
+    // object down immediately. (void)-cast to silence the warning we deliberately want.
+    b8::reset_counts();
+    factory<b8> f;
+    (void)f.emplace(b8::key, 5);
+    EXPECT_EQ(b8::ctor_calls, 1);
+    EXPECT_EQ(b8::dtor_calls, 1) << "an unbound handle does not keep the object alive";
 }
 
 TEST(DispatchFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
@@ -363,15 +384,15 @@ TEST(DispatchFactoryRuntime, SeparateFactories_OwnIndependentStorage) {
     factory<b8> f2;
     b8::reset_counts();
 
-    base* p1 = f1.emplace(b8::key, 1);
-    base* p2 = f2.emplace(b8::key, 2);
+    auto p1 = f1.emplace(b8::key, 1);
+    auto p2 = f2.emplace(b8::key, 2);
 
     ASSERT_NE(p1, nullptr);
     ASSERT_NE(p2, nullptr);
     // Two distinct factories -> two distinct slots -> two distinct addresses.
     EXPECT_NE(p1, p2);
-    EXPECT_EQ(dynamic_cast<b8*>(p1)->value, 1);
-    EXPECT_EQ(dynamic_cast<b8*>(p2)->value, 2);
+    EXPECT_EQ(dynamic_cast<b8*>(p1.get())->value, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(p2.get())->value, 2);
 }
 
 // ===========================================================================
@@ -382,9 +403,9 @@ TEST(DispatchFactoryForwarding, StringLvalue_PicksCopyCtor) {
     factory<c8> f;
 
     std::string s = "hello";
-    base* p = f.emplace(c8::key, s);
+    auto p = f.emplace(c8::key, s);
     ASSERT_NE(p, nullptr);
-    auto* c = dynamic_cast<c8*>(p);
+    auto* c = dynamic_cast<c8*>(p.get());
     ASSERT_NE(c, nullptr);
     EXPECT_FALSE(c->was_moved) << "lvalue must select c8(const std::string&)";
     EXPECT_EQ(c->s, "hello");
@@ -394,9 +415,9 @@ TEST(DispatchFactoryForwarding, StringLvalue_PicksCopyCtor) {
 TEST(DispatchFactoryForwarding, StringRvalue_PicksMoveCtor) {
     factory<c8> f;
 
-    base* p = f.emplace(c8::key, std::string("world"));
+    auto p = f.emplace(c8::key, std::string("world"));
     ASSERT_NE(p, nullptr);
-    auto* c = dynamic_cast<c8*>(p);
+    auto* c = dynamic_cast<c8*>(p.get());
     ASSERT_NE(c, nullptr);
     EXPECT_TRUE(c->was_moved) << "rvalue must select c8(std::string&&)";
     EXPECT_EQ(c->s, "world");
@@ -406,9 +427,9 @@ TEST(DispatchFactoryForwarding, ExplicitlyMovedLvalue_PicksMoveCtor) {
     factory<c8> f;
 
     std::string s = "moved";
-    base* p = f.emplace(c8::key, std::move(s));
+    auto p = f.emplace(c8::key, std::move(s));
     ASSERT_NE(p, nullptr);
-    auto* c = dynamic_cast<c8*>(p);
+    auto* c = dynamic_cast<c8*>(p.get());
     ASSERT_NE(c, nullptr);
     EXPECT_TRUE(c->was_moved);
     EXPECT_EQ(c->s, "moved");
@@ -418,9 +439,9 @@ TEST(DispatchFactoryForwarding, ConstLvalue_PicksCopyCtor) {
     factory<c8> f;
 
     const std::string s = "constref";
-    base* p = f.emplace(c8::key, s);
+    auto p = f.emplace(c8::key, s);
     ASSERT_NE(p, nullptr);
-    auto* c = dynamic_cast<c8*>(p);
+    auto* c = dynamic_cast<c8*>(p.get());
     ASSERT_NE(c, nullptr);
     EXPECT_FALSE(c->was_moved) << "const lvalue must select copy ctor";
     EXPECT_EQ(c->s, "constref");
@@ -430,9 +451,9 @@ TEST(DispatchFactoryForwarding, TripleCtor_ByValue_OneArg) {
     factory<triple_ctor> f;
 
     std::string s = "by-value-lvalue";
-    base* p = f.emplace(triple_ctor::key, s);
+    auto p = f.emplace(triple_ctor::key, s);
     ASSERT_NE(p, nullptr);
-    auto* t = dynamic_cast<triple_ctor*>(p);
+    auto* t = dynamic_cast<triple_ctor*>(p.get());
     ASSERT_NE(t, nullptr);
     EXPECT_EQ(t->which, triple_ctor::taken::by_value);
     EXPECT_EQ(t->s, "by-value-lvalue");
@@ -441,9 +462,9 @@ TEST(DispatchFactoryForwarding, TripleCtor_ByValue_OneArg) {
 TEST(DispatchFactoryForwarding, TripleCtor_ByValue_FromRvalue) {
     factory<triple_ctor> f;
 
-    base* p = f.emplace(triple_ctor::key, std::string("by-value-rvalue"));
+    auto p = f.emplace(triple_ctor::key, std::string("by-value-rvalue"));
     ASSERT_NE(p, nullptr);
-    auto* t = dynamic_cast<triple_ctor*>(p);
+    auto* t = dynamic_cast<triple_ctor*>(p.get());
     ASSERT_NE(t, nullptr);
     EXPECT_EQ(t->which, triple_ctor::taken::by_value);
     EXPECT_EQ(t->s, "by-value-rvalue");
@@ -453,9 +474,9 @@ TEST(DispatchFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
     factory<triple_ctor> f;
 
     std::string s = "cref-overload";
-    base* p = f.emplace(triple_ctor::key, s, 1);
+    auto p = f.emplace(triple_ctor::key, s, 1);
     ASSERT_NE(p, nullptr);
-    auto* t = dynamic_cast<triple_ctor*>(p);
+    auto* t = dynamic_cast<triple_ctor*>(p.get());
     ASSERT_NE(t, nullptr);
     EXPECT_EQ(t->which, triple_ctor::taken::by_cref);
     EXPECT_EQ(t->s, "cref-overload");
@@ -465,9 +486,9 @@ TEST(DispatchFactoryForwarding, TripleCtor_ByConstRef_TagDisambiguates) {
 TEST(DispatchFactoryForwarding, TripleCtor_ByRvalueRef_TagDisambiguates) {
     factory<triple_ctor> f;
 
-    base* p = f.emplace(triple_ctor::key, std::string("rvalue-overload"), 1.0);
+    auto p = f.emplace(triple_ctor::key, std::string("rvalue-overload"), 1.0);
     ASSERT_NE(p, nullptr);
-    auto* t = dynamic_cast<triple_ctor*>(p);
+    auto* t = dynamic_cast<triple_ctor*>(p.get());
     ASSERT_NE(t, nullptr);
     EXPECT_EQ(t->which, triple_ctor::taken::by_rvalue);
     EXPECT_EQ(t->s, "rvalue-overload");
@@ -477,10 +498,10 @@ TEST(DispatchFactoryForwarding, MoveOnlyType_UniquePtr) {
     factory<d8> f;
 
     auto up = std::make_unique<int>(7);
-    base* p = f.emplace(d8::key, std::move(up));
+    auto p = f.emplace(d8::key, std::move(up));
     ASSERT_NE(p, nullptr);
     EXPECT_EQ(up.get(), nullptr) << "ownership must transfer through the factory";
-    auto* d = dynamic_cast<d8*>(p);
+    auto* d = dynamic_cast<d8*>(p.get());
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->payload, 7);
     ASSERT_NE(d->keep, nullptr);
@@ -493,9 +514,9 @@ TEST(DispatchFactoryForwarding, MoveObserver_SourceIsActuallyMoved) {
     std::string src = "this string is long enough to live on the heap and survive SSO truncation";
     const auto src_data_before = src.data();
 
-    base* p = f.emplace(move_observer::key, std::move(src));
+    auto p = f.emplace(move_observer::key, std::move(src));
     ASSERT_NE(p, nullptr);
-    auto* m = dynamic_cast<move_observer*>(p);
+    auto* m = dynamic_cast<move_observer*>(p.get());
     ASSERT_NE(m, nullptr);
     EXPECT_TRUE(m->ctor_saw_rvalue);
     EXPECT_EQ(m->s.data(), src_data_before) << "buffer should have been pilfered, not copied";
@@ -505,9 +526,9 @@ TEST(DispatchFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
     factory<h16> f;
 
     int x = 5;          // lvalue
-    base* p = f.emplace(h16::key, x, 2.5); // lvalue int + rvalue double
+    auto p = f.emplace(h16::key, x, 2.5); // lvalue int + rvalue double
     ASSERT_NE(p, nullptr);
-    auto* h = dynamic_cast<h16*>(p);
+    auto* h = dynamic_cast<h16*>(p.get());
     ASSERT_NE(h, nullptr);
     EXPECT_EQ(h->a, 5);
     EXPECT_DOUBLE_EQ(h->b, 2.5);
@@ -517,33 +538,56 @@ TEST(DispatchFactoryForwarding, LvalueAndRvalueInSameCall_MixedArgs) {
 // Runtime - lifecycle (replacement, repeated emplace, ctor/dtor counts)
 // ===========================================================================
 
-TEST(DispatchFactoryLifecycle, ReplaceSameKey_DestroysOldBeforeConstructingNew) {
+TEST(DispatchFactoryLifecycle, ReEmplaceAfterDrop_DestroysOldThenConstructsNew) {
+    // Under the handle model a key must be re-emplaced only after its handle is
+    // dropped (a live handle re-emplaced would be use-after-reset). This is the
+    // supported "replace" flow: drop, then emplace again.
     b8::reset_counts();
     factory<b8> f;
 
-    base* p1 = f.emplace(b8::key, 1);
-    ASSERT_NE(p1, nullptr);
-    EXPECT_EQ(b8::ctor_calls, 1);
-    EXPECT_EQ(b8::dtor_calls, 0);
-
-    base* p2 = f.emplace(b8::key, 2);
-    ASSERT_NE(p2, nullptr);
-    EXPECT_EQ(b8::ctor_calls, 2);
+    {
+        auto h1 = f.emplace(b8::key, 1);
+        ASSERT_NE(h1, nullptr);
+        EXPECT_EQ(b8::ctor_calls, 1);
+        EXPECT_EQ(b8::dtor_calls, 0);
+    } // h1 dropped -> b8(1) destroyed
     EXPECT_EQ(b8::dtor_calls, 1);
 
-    auto* b = dynamic_cast<b8*>(p2);
-    ASSERT_NE(b, nullptr);
-    EXPECT_EQ(b->value, 2);
+    auto h2 = f.emplace(b8::key, 2);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(b8::ctor_calls, 2);
+    EXPECT_EQ(b8::dtor_calls, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 2);
+}
+
+TEST(DispatchFactoryLifecycle, Handle_IsMoveOnly_AndTransfersOwnership) {
+    b8::reset_counts();
+    factory<b8> f;
+
+    auto h1 = f.emplace(b8::key, 9);
+    ASSERT_NE(h1, nullptr);
+
+    auto h2 = std::move(h1);          // ownership transfers; no teardown
+    EXPECT_EQ(h1, nullptr) << "moved-from handle is empty";
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 9);
+    EXPECT_EQ(b8::dtor_calls, 0) << "moving the handle must not destroy the object";
+
+    h2.reset();                       // explicit teardown through the handle
+    EXPECT_EQ(b8::dtor_calls, 1);
 }
 
 TEST(DispatchFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
     b8::reset_counts();
     factory<b8> f;
 
+    // Each discarded temporary handle constructs then immediately tears down,
+    // so three teardowns precede the bound fourth.
     ASSERT_NE(f.emplace(b8::key, 10), nullptr);
     ASSERT_NE(f.emplace(b8::key, 20), nullptr);
     ASSERT_NE(f.emplace(b8::key, 30), nullptr);
-    auto* b = dynamic_cast<b8*>(f.emplace(b8::key, 40));
+    auto h = f.emplace(b8::key, 40);
+    auto* b = dynamic_cast<b8*>(h.get());
     ASSERT_NE(b, nullptr);
 
     EXPECT_EQ(b->value, 40);
@@ -554,14 +598,14 @@ TEST(DispatchFactoryLifecycle, RepeatedReplacement_CountsAddUp) {
 TEST(DispatchFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
     factory<c8> f;
 
-    base* p1 = f.emplace(c8::key, std::string("first"));
+    auto p1 = f.emplace(c8::key, std::string("first"));
     ASSERT_NE(p1, nullptr);
 
     std::string s = "second";
-    base* p2 = f.emplace(c8::key, s);
+    auto p2 = f.emplace(c8::key, s);
     ASSERT_NE(p2, nullptr);
 
-    auto* c = dynamic_cast<c8*>(p2);
+    auto* c = dynamic_cast<c8*>(p2.get());
     ASSERT_NE(c, nullptr);
     EXPECT_FALSE(c->was_moved);
     EXPECT_EQ(c->s, "second");
@@ -575,9 +619,9 @@ TEST(DispatchFactoryBoundary, KeyZero_Works) {
     factory<e8_zero> f;
 
     std::string s = "edge";
-    base* p = f.emplace(e8_zero::key, s);
+    auto p = f.emplace(e8_zero::key, s);
     ASSERT_NE(p, nullptr);
-    auto* e = dynamic_cast<e8_zero*>(p);
+    auto* e = dynamic_cast<e8_zero*>(p.get());
     ASSERT_NE(e, nullptr);
     EXPECT_FALSE(e->took_move);
     EXPECT_EQ(e->s, "edge");
@@ -588,9 +632,9 @@ TEST(DispatchFactoryBoundary, KeyMaxUint8_Works) {
 
     std::array<int, 64> a{};
     for (int i = 0; i < 64; ++i) a[i] = i * i;
-    base* p = f.emplace(f8_max::key, a);
+    auto p = f.emplace(f8_max::key, a);
     ASSERT_NE(p, nullptr);
-    auto* fp = dynamic_cast<f8_max*>(p);
+    auto* fp = dynamic_cast<f8_max*>(p.get());
     ASSERT_NE(fp, nullptr);
     EXPECT_EQ(fp->buf[10], 100);
     EXPECT_EQ(fp->buf[63], 63 * 63);
@@ -599,7 +643,7 @@ TEST(DispatchFactoryBoundary, KeyMaxUint8_Works) {
 TEST(DispatchFactoryBoundary, SparseKey_SixtyThousand) {
     factory<sparse16> f;
 
-    base* p = f.emplace(sparse16::key);
+    auto p = f.emplace(sparse16::key);
     ASSERT_NE(p, nullptr);
     EXPECT_STREQ(p->tag(), "sparse16");
 }
@@ -621,7 +665,7 @@ TEST(DispatchFactoryBoundary, LargeTypelist_SparseKeys) {
     > f;
 
     for (std::uint16_t k : {1, 33, 97, 145, 241}) {
-        base* p = f.emplace(k);
+        auto p = f.emplace(k);
         ASSERT_NE(p, nullptr) << "registered key " << k << " must dispatch";
         EXPECT_STREQ(p->tag(), "seq_type");
     }
@@ -666,13 +710,13 @@ TEST(DispatchFactoryNullptr, ArgMismatch_OnValidKey_DoesNotCorruptSlot) {
     // b8::key resolves to a real slot, but b8 only has b8(int). Passing a
     // std::string finds no matching branch and the dispatch returns nullptr.
     // The b8 slot must remain untouched.
-    base* p = f.emplace(b8::key, std::string("not-an-int"));
+    auto p = f.emplace(b8::key, std::string("not-an-int"));
     EXPECT_EQ(p, nullptr);
     EXPECT_EQ(b8::ctor_calls, 0);
     EXPECT_EQ(b8::dtor_calls, 0);
 
     // Sanity: the correct signature still works after the failed attempt.
-    base* q = f.emplace(b8::key, 7);
+    auto q = f.emplace(b8::key, 7);
     ASSERT_NE(q, nullptr);
     EXPECT_STREQ(q->tag(), "b8");
     EXPECT_EQ(b8::ctor_calls, 1);
@@ -686,7 +730,7 @@ TEST(DispatchFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
     // dispatch finds no matching ctor, returns nullptr, and *must not*
     // have moved-from our unique_ptr because no construction happened.
     auto up = std::make_unique<int>(99);
-    base* p = f.emplace(b8::key, std::move(up));
+    auto p = f.emplace(b8::key, std::move(up));
     EXPECT_EQ(p, nullptr);
     ASSERT_NE(up.get(), nullptr) << "failed dispatch must not consume the rvalue";
     EXPECT_EQ(*up, 99);
