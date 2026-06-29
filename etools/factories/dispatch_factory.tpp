@@ -20,19 +20,40 @@
 namespace etools::factories::details{
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
-    inline Base* dispatch_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args) noexcept
+    inline auto dispatch_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args)
+        noexcept(((not std::is_constructible_v<DerivedTypes, Args&&...>
+                   or std::is_nothrow_constructible_v<DerivedTypes, Args&&...>) and ...))
+        -> handle
     {
         // `table` is the constexpr MPH singleton; `table(key)` is an O(1) runtime lookup.
         constexpr const auto& table = mpht();
         std::size_t index = table(key);
-        if (index >= capacity) return nullptr; // noting that `capacity` == `table.not_found()`
+        if (index >= capacity) return handle{};               // unknown key -> empty handle
         Base* b = dispatch(index, std::forward<Args>(args)...);
-        return b;
+        if (not b) return handle{};                           // no type constructible from Args
+        return handle{b, cell_deleter{this, key}};
     }
 
+    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
+    inline void dispatch_factory<Base, Extractor, DerivedTypes...>::reset(key_t key) noexcept
+    {
+        constexpr const auto& table = mpht();
+        std::size_t index = table(key);
+        if (index >= capacity) return;
+        reset_fold(index, std::index_sequence_for<DerivedTypes...>{});
+    }
 
-    template <typename Base, template<typename> typename Extractor,typename... DerivedTypes>
-    constexpr const auto &dispatch_factory<Base, Extractor, DerivedTypes...>::mpht() noexcept {
+    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
+    template <std::size_t... Is>
+    inline void dispatch_factory<Base, Extractor, DerivedTypes...>::reset_fold(std::size_t index, std::index_sequence<Is...>) noexcept
+    {
+        // Only the matching cell is reset; the rest are cheap index comparisons.
+        ((index == Is ? (std::get<Is>(_slots).reset(), true) : false) or ...);
+    }
+
+    template <typename Base, template <typename> typename Extractor, typename... DerivedTypes>
+    constexpr const auto &dispatch_factory<Base, Extractor, DerivedTypes...>::mpht() noexcept
+    {
         using table_t = etools::hashing::optimal_mph<key_t>;
         return table_t::template instance<
         static_cast<key_t>(Extractor<DerivedTypes>::value)...
@@ -42,7 +63,7 @@ namespace etools::factories::details{
     template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template<std::size_t Index, typename... Args>
     inline bool dispatch_factory<Base, Extractor, DerivedTypes...>::
-    try_emplace_if_constructible(Base*& out, Args&&... args) noexcept {
+    try_emplace_if_constructible(Base*& out, Args&&... args) {
         using target_t = meta::nth_t<Index, DerivedTypes...>;
         // Preserve the value category of each argument expression in the probe:
         //   - lvalue arg  -> decltype(std::forward<Arg>(arg)) is T&   (cannot bind to T&&)
@@ -59,7 +80,7 @@ namespace etools::factories::details{
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args, std::size_t... Is>
     Base* dispatch_factory<Base, Extractor, DerivedTypes...>
-    ::dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept
+    ::dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args)
     {
         Base* result = nullptr;
 
@@ -74,7 +95,7 @@ namespace etools::factories::details{
 
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
-    Base *dispatch_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args) noexcept{
+    Base *dispatch_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args){
 
         // Compilation bottleneck in `dispatch_fold` for very large amount of keys ( >2000 )
         // due to call to nth_t. For k different constructors and n keys, the expected

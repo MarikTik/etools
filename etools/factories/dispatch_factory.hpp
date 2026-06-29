@@ -8,7 +8,7 @@
 * This header provides a zero-allocation, header-only facility to construct one of
 * several `DerivedTypes...` by a `key` extracted from each derived type via an `Extractor<T>`.
 * The mapping from keys to dense indices is resolved entirely at compile time through
-* `etools::hashing::optimal_mph`, yielding O(1) runtime dispatch with no dynamic memory.
+* `etools::hashing::optimal_mph`, yielding constant-time key lookup with no dynamic memory.
 *
 * ## Core Concepts
 * - Each `Derived` type must expose a unique, constant expression key
@@ -118,6 +118,7 @@
 #include "../meta/typelist.hpp"
 #include "../meta/traits.hpp"
 #include "../hashing/optimal_mph.hpp"
+#include <memory>
 #include <optional>
 #include <tuple>
 #include <type_traits>
@@ -142,13 +143,18 @@ namespace etools::factories{
         * @note The factory is a pinned type: copy and move are both deleted (like
         *       `std::mutex`). It owns live objects in-place, so relocating it is not
         *       supported; hold it by reference, as a `static`, or on the stack.
+        * @note Not thread-safe: `emplace` mutates shared storage. Use one factory per thread,
+        *       or synchronise externally.
+        * @note Returned `Base*` is non-owning: the factory retains ownership in its cell. Do
+        *       not `delete` it; it is destroyed when replaced (re-`emplace` on the same key) or
+        *       when the factory is destroyed.
         */
         template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
         class dispatch_factory{
             /**
             * @typedef sample_t
             *
-            * @brief The first derived type used to deduce key key type.
+            * @brief The first derived type used to deduce key type.
             */
             using sample_t = meta::nth_t<0, DerivedTypes...>;
 
@@ -165,7 +171,33 @@ namespace etools::factories{
             * @brief The number of derived types in this registry.
             */
             static constexpr std::size_t capacity = sizeof...(DerivedTypes);
+
+            static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<DerivedTypes>::value)>> && ...), "all registered types must expose the same key type");
+            static_assert(sizeof...(DerivedTypes) > 0, "register at least one type");
+
+            /**
+            * @brief Custom deleter for the owning handle returned by `emplace`.
+            *
+            * Does **not** free memory (the object lives in the factory's cell); instead it calls
+            * the factory's private `reset(key)`, which runs the cell's destruction in place. This
+            * is the `etools::memory::buffer` custom-deleter pattern: zero-allocation ownership with
+            * RAII teardown. A default-constructed deleter (`factory == nullptr`) is a no-op, which
+            * is what a null/failed handle carries.
+            *
+            * @warning The handle must not outlive the factory: the deleter dereferences `factory`.
+            */
+            struct cell_deleter {
+                dispatch_factory* factory = nullptr;
+                key_t key{};
+                void operator()(Base*) const noexcept { if (factory) factory->reset(key); }
+            };
         public:
+            /**
+            * @brief Owning handle to a constructed object: a `unique_ptr<Base>` whose deleter
+            *        tears the object down in its factory cell (no heap free).
+            */
+            using handle = std::unique_ptr<Base, cell_deleter>;
+
             /**
             * @brief Constructs an empty factory; every slot starts unoccupied.
             */
@@ -188,21 +220,51 @@ namespace etools::factories{
             * @param[in] key  The key corresponding to a registered derived type.
             * @param[in] args Constructor arguments forwarded to the selected `Derived`.
             *
-            * @return Pointer to the constructed `Base` subobject, or `nullptr` if `key` is not
-            *         found, or if no registered type is constructible from `Args...`.
+            * @return An owning `handle` (a `unique_ptr<Base>`). The handle is **empty**
+            *         (`get() == nullptr`) if `key` is not found, or if no registered type is
+            *         constructible from `Args...`. Dropping a non-empty handle (or calling
+            *         `.reset()` on it) destroys the object in its factory cell.
             *
-            * @post On success the object lives in this factory's owned slot and is destroyed
-            *       when the factory is destroyed (or replaced by a later `emplace` on the same key).
+            * @post On success the object lives in this factory's owned cell and is destroyed when
+            *       the returned handle is dropped, when a later `emplace` on the same key replaces
+            *       it, or when the factory is destroyed - whichever comes first.
             *
-            * @note O(1) runtime: one MPH lookup + one branchless dispatch.
+            * @warning The handle must not outlive the factory, and a key must not be re-`emplace`d
+            *          while a handle to it is still alive (the stale handle would then reset the
+            *          replacement). Both hold trivially for single-threaded, run-to-completion use.
+            *
+            * @note Runtime cost: an O(1) perfect-hash lookup, then a fold that maps the runtime
+            *       index to its compile-time slot. The fold is a linear `index == Is` chain that
+            *       optimizers typically lower to a jump table over the dense index range.
+            *
+            * @note `noexcept` is conditional: `emplace` is `noexcept` iff every registered type
+            *       that is constructible from `Args...` is also nothrow-constructible from them.
+            *       A throwing constructor on a matching type therefore propagates out of `emplace`
+            *       rather than calling `std::terminate`.
             *
             * @warning `Extractor<T>::value` must be a usable constant expression and unique per `T`.
             * @warning If an object with the same key already exists it is destroyed and replaced.
             */
             template<typename... Args>
-            [[nodiscard]] Base* emplace(key_t key, Args&&... args) noexcept;
+            [[nodiscard]] handle emplace(key_t key, Args&&... args)
+                noexcept(((not std::is_constructible_v<DerivedTypes, Args&&...>
+                           or std::is_nothrow_constructible_v<DerivedTypes, Args&&...>) and ...));
 
         private:
+            /**
+            * @brief Destroy the object currently held in the cell for `key`, if any.
+            *
+            * Private: the only caller is `cell_deleter`. Tearing a cell down through the factory
+            * directly is intentionally not part of the public surface; ownership flows through the
+            * `handle` returned by `emplace`. No-op if `key` is unknown or its cell is empty.
+            */
+            void reset(key_t key) noexcept;
+
+            /**
+            * @brief Fold that resets the `std::optional` whose tuple index equals `index`.
+            */
+            template<std::size_t... Is>
+            void reset_fold(std::size_t index, std::index_sequence<Is...>) noexcept;
             /**
             * @brief Accessor for the canonical compile-time lookup artifact.
             *
@@ -232,7 +294,7 @@ namespace etools::factories{
             *          from a validated dispatch path.
             */
             template<std::size_t Index, typename... Args>
-            bool try_emplace_if_constructible(Base*& out, Args&&... args) noexcept;
+            bool try_emplace_if_constructible(Base*& out, Args&&... args);
 
 
             /**
@@ -246,7 +308,7 @@ namespace etools::factories{
             * @return Pointer to the constructed base subobject, or `nullptr` if `index` is out of range.
             */
             template<typename... Args>
-            Base* dispatch(std::size_t index, Args&&... args) noexcept;
+            Base* dispatch(std::size_t index, Args&&... args);
 
             /**
             * @brief Fold-based dispatch implementation over an index sequence.
@@ -263,7 +325,7 @@ namespace etools::factories{
             *       `Args...` signature.
             */
             template<typename... Args, std::size_t... Is>
-            Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args) noexcept;
+            Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args);
 
             /**
             * @brief Owned storage: one cell per registered derived type, in declaration order.
@@ -288,8 +350,8 @@ namespace etools::factories{
     *
     * @note You may pass a `meta::typelist<...>` as the third template parameter; it is unwrapped.
     */
-    template<typename Base, template<typename> typename Exctractor, typename... DerivedTypes>
-    class dispatch_factory : public details::dispatch_factory<Base, Exctractor, DerivedTypes...>{};
+    template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
+    class dispatch_factory : public details::dispatch_factory<Base, Extractor, DerivedTypes...>{};
 
     /**
     * @brief Typelist adapter specialization.
