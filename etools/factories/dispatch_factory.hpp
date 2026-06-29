@@ -172,7 +172,7 @@ namespace etools::factories{
             */
             static constexpr std::size_t capacity = sizeof...(DerivedTypes);
 
-            static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<DerivedTypes>::value)>> && ...), "all registered types must expose the same key type");
+            static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<DerivedTypes>::value)>> and ...), "all registered types must expose the same key type");
             static_assert(sizeof...(DerivedTypes) > 0, "register at least one type");
 
             /**
@@ -189,7 +189,17 @@ namespace etools::factories{
             struct cell_deleter {
                 dispatch_factory* factory = nullptr;
                 key_t key{};
-                void operator()(Base*) const noexcept { if (factory) factory->reset(key); }
+
+                /**
+                * @brief Called by `unique_ptr` when the handle is dropped or reset.
+                *
+                * Does not free memory; calls the factory's private `reset(key)`, which
+                * destroys the object in its `std::optional` cell in place. A null `factory`
+                * pointer (default-constructed deleter, empty handle) is a no-op.
+                *
+                * @param[in] p  Pointer to the `Base` subobject (unused - storage is in the cell).
+                */
+                void operator()(Base* p) const noexcept;
             };
         public:
             /**
@@ -261,41 +271,27 @@ namespace etools::factories{
             void reset(key_t key) noexcept;
 
             /**
-            * @brief Fold that resets the `std::optional` whose tuple index equals `index`.
+            * @brief Invoke `fn(std::integral_constant<std::size_t, I>{})` for the unique `I`
+            *        in `Is...` where `I == index`, then stop. No-op if `index` is not in `Is`.
+            *
+            * @tparam Fn    Callable accepting a `std::integral_constant<std::size_t, I>`.
+            *               Must be noexcept if the enclosing context requires it.
+            * @tparam Is    Compile-time index sequence; typically `0..capacity-1`.
+            *
+            * @param[in] index  Runtime index to match.
+            * @param[in] fn     Action to invoke on the matching index.
+            *
+            * @note Zero runtime overhead: `Fn` is monomorphized, the constant is folded by
+            *       the compiler, and no indirect call is emitted at any optimization level.
             */
-            template<std::size_t... Is>
-            void reset_fold(std::size_t index, std::index_sequence<Is...>) noexcept;
+            template<std::size_t... Is, typename Fn>
+            static void index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn) noexcept;
             /**
             * @brief Accessor for the canonical compile-time lookup artifact.
             *
             * @return `constexpr const&` to the MPH singleton for the extracted keys.
             */
             static constexpr const auto& mpht() noexcept;
-
-            /**
-            * @brief Try to emplace into the `Index`-th owned slot if its type matches `Args`.
-            *
-            * @tparam Index Tuple index of the target derived type / cell.
-            * @tparam Args  Pack of argument types forwarded to `std::optional<T>::emplace`.
-            *
-            * @param[out] out  Receives the constructed object pointer (as `Base*`) if construction happens.
-            * @param[in]  args Constructor arguments perfectly forwarded to the derived type.
-            *
-            * @return `true` if the target type is constructible from `Args` and construction was
-            *         attempted; otherwise `false` (no attempt was made).
-            *
-            * @note This function is SFINAE-guarded via `if constexpr`:
-            *       if the target type is not constructible from `Args`, the branch compiles to a
-            *       no-op without instantiating any ill-formed code paths. This prevents compilation
-            *       failures when the factory is called with argument lists that do not match all
-            *       registered types.
-            *
-            * @warning This function does not validate the key/index; callers should only invoke it
-            *          from a validated dispatch path.
-            */
-            template<std::size_t Index, typename... Args>
-            bool try_emplace_if_constructible(Base*& out, Args&&... args);
-
 
             /**
             * @brief Dispatch to the `index`-th owned slot and `emplace` with perfect forwarding.
@@ -310,22 +306,6 @@ namespace etools::factories{
             template<typename... Args>
             Base* dispatch(std::size_t index, Args&&... args);
 
-            /**
-            * @brief Fold-based dispatch implementation over an index sequence.
-            *
-            * @tparam Args Constructor argument types.
-            * @tparam Is   Index sequence `[0..count-1]`.
-            *
-            * @param[in] index Dense index in `[0..count-1]`.
-            * @param[in] args  Constructor arguments forwarded to the derived type.
-            *
-            * @return Pointer to the constructed base subobject, or `nullptr` if not matched.
-            *
-            * @note Compile-time cost is linear in the number of registered types for each distinct
-            *       `Args...` signature.
-            */
-            template<typename... Args, std::size_t... Is>
-            Base* dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args);
 
             /**
             * @brief Owned storage: one cell per registered derived type, in declaration order.

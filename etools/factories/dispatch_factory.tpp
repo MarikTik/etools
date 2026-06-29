@@ -19,6 +19,12 @@
 #include <tuple>
 namespace etools::factories::details{
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
+    inline void dispatch_factory<Base, Extractor, DerivedTypes...>::cell_deleter::operator()(Base*) const noexcept
+    {
+        if (factory) factory->reset(key);
+    }
+
+    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
     inline auto dispatch_factory<Base, Extractor, DerivedTypes...>::emplace(key_t key, Args &&...args)
         noexcept(((not std::is_constructible_v<DerivedTypes, Args&&...>
@@ -35,20 +41,20 @@ namespace etools::factories::details{
     }
 
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
+    template <std::size_t... Is, typename Fn>
+    inline void dispatch_factory<Base, Extractor, DerivedTypes...>::index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn) noexcept
+    {
+        ((index == Is ? (fn(std::integral_constant<std::size_t, Is>{}), true) : false) || ...);
+    }
+
+    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     inline void dispatch_factory<Base, Extractor, DerivedTypes...>::reset(key_t key) noexcept
     {
         constexpr const auto& table = mpht();
         std::size_t index = table(key);
         if (index >= capacity) return;
-        reset_fold(index, std::index_sequence_for<DerivedTypes...>{});
-    }
-
-    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
-    template <std::size_t... Is>
-    inline void dispatch_factory<Base, Extractor, DerivedTypes...>::reset_fold(std::size_t index, std::index_sequence<Is...>) noexcept
-    {
-        // Only the matching cell is reset; the rest are cheap index comparisons.
-        ((index == Is ? (std::get<Is>(_slots).reset(), true) : false) or ...);
+        index_dispatch(index, std::index_sequence_for<DerivedTypes...>{},
+            [this](auto I) { std::get<I()>(_slots).reset(); });
     }
 
     template <typename Base, template <typename> typename Extractor, typename... DerivedTypes>
@@ -60,50 +66,21 @@ namespace etools::factories::details{
         >();
     }
 
-    template<typename Base, template<typename> typename Extractor, typename... DerivedTypes>
-    template<std::size_t Index, typename... Args>
-    inline bool dispatch_factory<Base, Extractor, DerivedTypes...>::
-    try_emplace_if_constructible(Base*& out, Args&&... args) {
-        using target_t = meta::nth_t<Index, DerivedTypes...>;
-        // Preserve the value category of each argument expression in the probe:
-        //   - lvalue arg  -> decltype(std::forward<Arg>(arg)) is T&   (cannot bind to T&&)
-        //   - rvalue arg  -> decltype(std::forward<Arg>(arg)) is T&&  (can bind to T&&)
-        if constexpr (std::is_constructible_v<target_t, Args&&...>) {
-            out = &std::get<Index>(_slots).emplace(std::forward<Args>(args)...);
-            return true;
-        } else {
-            (void)out;
-            return false; // arguments don't match this type's constructor
-        }
-    }
-
-    template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
-    template <typename... Args, std::size_t... Is>
-    Base* dispatch_factory<Base, Extractor, DerivedTypes...>
-    ::dispatch_fold(std::size_t index, std::index_sequence<Is...>, Args&&... args)
-    {
-        Base* result = nullptr;
-
-        // Only the matching branch (index == Is) performs the emplace; others are cheap tests.
-        // The boolean fold keeps short-circuit behavior.
-        ((index == Is
-            ? try_emplace_if_constructible<Is>(result, std::forward<Args>(args)...)
-            : false) || ...);
-
-        return result;
-    }
-
     template <typename Base, template<typename> typename Extractor, typename... DerivedTypes>
     template <typename... Args>
-    Base *dispatch_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args){
-
-        // Compilation bottleneck in `dispatch_fold` for very large amount of keys ( >2000 )
-        // due to call to nth_t. For k different constructors and n keys, the expected
-        // compile time complexity is O(k*n).
-        // Future: replace nth_t with meta::pack_at_t to amortize to O(n+k) total.
-
-        return dispatch_fold(index, std::index_sequence_for<DerivedTypes...>{},
-            std::forward<Args>(args)...);
+    Base* dispatch_factory<Base, Extractor, DerivedTypes...>::dispatch(std::size_t index, Args&&... args)
+    {
+        // Compilation bottleneck for very large registries (>2000 types) due to nth_t.
+        // For k constructor signatures and n types: O(k*n) compile time.
+        // Future: replace nth_t with meta::pack_at_t to amortize to O(n+k).
+        Base* result = nullptr;
+        index_dispatch(index, std::index_sequence_for<DerivedTypes...>{},
+            [this, &result, &args...](auto I) {
+                using target_t = meta::nth_t<I(), DerivedTypes...>;
+                if constexpr (std::is_constructible_v<target_t, Args&&...>)
+                    result = &std::get<I()>(_slots).emplace(std::forward<Args>(args)...);
+            });
+        return result;
     }
 
 
