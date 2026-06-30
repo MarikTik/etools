@@ -49,10 +49,8 @@ namespace etools::hashing{
 
         template <typename KeyType, KeyType... Keys>
         constexpr auto llut_impl<KeyType, Keys...>::make_table() noexcept -> std::array<index_t, capacity()>{
-            #ifndef ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK
-                constexpr std::array<KeyType, size()> klist{{ Keys... }};
-                static_assert(meta::all_distinct_fast(klist), "Keys must be distinct");
-            #endif
+            constexpr std::array<KeyType, size()> klist{{ Keys... }};
+            static_assert(meta::all_distinct_fast(klist), "Keys must be distinct");
             std::array<index_t, capacity()> table{};
             for (std::size_t i = 0; i < capacity(); i++) table[i] = static_cast<index_t>(not_found());
             std::size_t idx = 0;

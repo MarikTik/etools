@@ -67,8 +67,7 @@
 * @endcode
 *
 * **Notes**
-*  - Keys must be **distinct**; this is checked at compile time unless you
-*    define `ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK`.
+*  - Keys must be **distinct**; this is always checked at compile time.
 *  - `instance<...>()` always returns a reference to a **singleton** with
 *    static storage duration (ODR-merged across translation units).
 *  - If you *want* a specific backend, call `llut<Key>::instance<...>()`

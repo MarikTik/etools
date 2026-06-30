@@ -54,9 +54,7 @@
 * This file expects:
 * - `meta::tpack_max<Key, Keys...>()` returning the maximum of `Keys...` at compile time.
 * - `meta::smallest_uint_t<N>` - smallest unsigned type that can represent `[0..N]`.
-* - Optionally, `meta::all_distinct(std::array<Key, N>)` for pairwise distinctness checking.
-*
-* Define `ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK` to skip the distinctness assertion.
+* - `meta::all_distinct_fast(std::array<Key, N>)` for O(N) pairwise distinctness checking.
 */
 #ifndef ETOOLS_HASHING_LLUT_HPP_
 #define ETOOLS_HASHING_LLUT_HPP_

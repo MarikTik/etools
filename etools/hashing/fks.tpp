@@ -99,12 +99,10 @@ namespace etools::hashing {
         template <typename KeyType, KeyType... Keys>
         constexpr fks_impl<KeyType, Keys...>::fks_impl() noexcept {
             // Distinctness check (no static data members => no ODR headaches)
-            #ifndef ETOOLS_SKIP_CONSTEXPR_DISTINCT_CHECK
             {
                 constexpr std::array<KeyType, size()> key_set{{ Keys... }};
                 static_assert(meta::all_distinct_fast(key_set), "FKS keys must be distinct");
             }
-            #endif
             
             // 1) Pack and first-level counts
             constexpr std::array<KeyType, size()> keys{ { Keys... } };
