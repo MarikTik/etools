@@ -186,6 +186,18 @@ namespace etools::factories {
         using slot_index_t = meta::smallest_uint_t<max_count - 1>;
 
         /**
+        * @brief `true` iff `emplace(key, Args...)` is noexcept for the given argument pack.
+        *
+        * The condition holds when every registered type that is constructible from
+        * `Args&&...` is also nothrow-constructible from it. Used to avoid repeating the
+        * fold in every `noexcept` specifier.
+        */
+        template<typename... Args>
+        static constexpr bool nothrow_emplace_v =
+            ((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
+              or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...);
+
+        /**
         * @brief Custom deleter for the owning handle returned by `emplace`.
         *
         * Does **not** free memory (the object lives in the factory's array cell);
@@ -210,15 +222,23 @@ namespace etools::factories {
             void operator()(Base* p) const noexcept;
         };
 
-        ////////////////// contracts //////////////////
-        static_assert(sizeof...(Regs) > 0, "register at least one type");
-        static_assert((std::is_base_of_v<Base, typename reg_t<Regs>::type> and ...), "every registered type must derive from Base");
-        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg_t<Regs>::type>::value)>> and ...), "all registered types must expose the same key type");
-        static_assert(((reg_t<Regs>::count > 0) and ...), "capacity<T, N> requires N > 0");
-        static_assert((not std::is_abstract_v<typename reg_t<Regs>::type> && ...), "registered type cannot be abstract: it cannot be constructed.");
-        static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> && ...),
-            "registered type must be nothrow-destructible; destruction runs in noexcept paths."); 
-        //////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////// contracts /////////////////////////////////////////////////////////////////////
+        static_assert(sizeof...(Regs) > 0, 
+            "register at least one type");
+        static_assert((std::is_base_of_v<Base, typename reg_t<Regs>::type> and ...), 
+            "every registered type must derive from Base");
+        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg_t<Regs>::type>::value)>> and ...), 
+            "all registered types must expose the same key type");
+        static_assert(((reg_t<Regs>::count > 0) and ...), 
+            "capacity<T, N> requires N > 0");
+        static_assert((not std::is_abstract_v<typename reg_t<Regs>::type> and ...), 
+            "registered type cannot be abstract: it cannot be constructed.");
+        static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> and ...),
+            "registered type must be nothrow-destructible; destruction runs in noexcept paths.");
+        static_assert(meta::all_distinct_fast(
+            std::array<key_t, type_count>{static_cast<key_t>(Extractor<typename reg_t<Regs>::type>::value)...}
+        ), "registered types must have pairwise-distinct keys");
+        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         
     public:
         /**
@@ -228,6 +248,14 @@ namespace etools::factories {
         using handle_t = std::unique_ptr<Base, cell_deleter>;
         /// @brief Constructs an empty factory; every slot starts unoccupied.
         dispatch_factory() = default;
+        /**
+        * @brief Destroys the factory and all objects in its slots.
+        *
+        * @pre All handles issued by this factory must have been dropped before the
+        *      factory is destroyed. Violating this leaves handles with dangling
+        *      `factory*` pointers; the violation is caught by `assert` in debug builds.
+        */
+        ~dispatch_factory() noexcept;
         /// @brief Deleted copy constructor - the factory owns in-place storage.
         dispatch_factory(const dispatch_factory&) = delete;
         /// @brief Deleted copy assignment operator.
@@ -266,10 +294,7 @@ namespace etools::factories {
         *       that is constructible from `Args...` is also nothrow-constructible from them.
         */
         template<typename... Args>
-        [[nodiscard]] handle_t emplace(key_t key, Args&&... args) noexcept(
-            ((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...> or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) 
-            and ...)
-        );
+        [[nodiscard]] handle_t emplace(key_t key, Args&&... args) noexcept(nothrow_emplace_v<Args...>);
 
     private:
         /**
@@ -321,8 +346,7 @@ namespace etools::factories {
         */
         template<typename... Args>
         Base* dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
-            noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
-                       or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...));
+            noexcept(nothrow_emplace_v<Args...>);
         /**
         * @brief Owned storage: one array of optionals per registered type, in declaration order.
         *

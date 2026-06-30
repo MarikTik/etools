@@ -22,14 +22,22 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     void dispatch_factory<Base, Extractor, Regs...>::cell_deleter::operator()(Base*) const noexcept
     {
-        factory->reset(key, slot_index); // if factory is nullptr, then unique_ptr wouldn't call the custom deleter either way
+        factory->reset(key, slot_index); // unique_ptr only calls this when ptr != nullptr, so factory is always valid here
+    }
+
+    template <typename Base, template<typename> typename Extractor, typename... Regs>
+    dispatch_factory<Base, Extractor, Regs...>::~dispatch_factory() noexcept
+    {
+        assert(std::apply([](const auto&... arrs) noexcept {
+            return (std::all_of(arrs.begin(), arrs.end(),
+                [](const auto& opt) noexcept { return !opt.has_value(); }) and ...);
+        }, _slots));
     }
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     template <typename... Args>
     auto dispatch_factory<Base, Extractor, Regs...>::emplace(key_t key, Args&&... args)
-        noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
-                   or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...))
+        noexcept(nothrow_emplace_v<Args...>)
         -> handle_t
     {
         constexpr const auto& table = mpht();
@@ -77,8 +85,7 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     template <typename... Args>
     Base* dispatch_factory<Base, Extractor, Regs...>::dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
-        noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
-                   or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...))
+        noexcept(nothrow_emplace_v<Args...>)
     {
         // Compilation bottleneck for very large registries (>2000 types) due to nth_t.
         // For k constructor signatures and n types: O(k*n) compile time.
@@ -86,8 +93,7 @@ namespace etools::factories {
         Base* result = nullptr;
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, &result, &out_slot, &args...](auto I)
-                noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
-                           or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...))
+                noexcept(nothrow_emplace_v<Args...>)
             {
                 using target_t = typename reg_t<meta::nth_t<I(), Regs...>>::type;
                 if constexpr (std::is_constructible_v<target_t, Args&&...>) {
