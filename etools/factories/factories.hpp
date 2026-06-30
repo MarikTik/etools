@@ -18,4 +18,5 @@
 #ifndef ETOOLS_FACTORIES_HPP_
 #define ETOOLS_FACTORIES_HPP_
 #include "dispatch_factory.hpp"
+#include "utils/capacity.hpp"
 #endif //ETOOLS_FACTORIES_HPP_
