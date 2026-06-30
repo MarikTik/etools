@@ -157,14 +157,14 @@ namespace etools::factories {
         // Normalise every Reg to capacity<T,N> uniformly, so bare types and
         // capacity<> tags are handled identically throughout the class body.
         template<typename R>
-        using reg = details::as_capacity_t<R>;
+        using reg_t = details::as_capacity_t<R>;
 
         /**
         * @typedef sample_t
         *
         * @brief The first derived type used to deduce key type.
         */
-        using sample_t  = typename reg<meta::nth_t<0, Regs...>>::type;
+        using sample_t  = typename reg_t<meta::nth_t<0, Regs...>>::type;
 
         /** @typedef key_t
         *
@@ -180,7 +180,7 @@ namespace etools::factories {
         /**
         * @brief Maximum per-type slot count across all registrations.
         */
-        static constexpr std::size_t max_count = std::max({reg<Regs>::count...});
+        static constexpr std::size_t max_count = std::max({reg_t<Regs>::count...});
 
         /**
         * @typedef slot_index_t
@@ -192,9 +192,9 @@ namespace etools::factories {
         */
         using slot_index_t = meta::smallest_uint_t<max_count - 1>;
 
-        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg<Regs>::type>::value)>> and ...), "all registered types must expose the same key type");
+        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg_t<Regs>::type>::value)>> and ...), "all registered types must expose the same key type");
         static_assert(sizeof...(Regs) > 0, "register at least one type");
-        static_assert(((reg<Regs>::count > 0) and ...), "capacity<T, N> requires N > 0");
+        static_assert(((reg_t<Regs>::count > 0) and ...), "capacity<T, N> requires N > 0");
 
         /**
         * @brief Custom deleter for the owning handle returned by `emplace`.
@@ -268,7 +268,7 @@ namespace etools::factories {
         */
         template<typename... Args>
         [[nodiscard]] handle_t emplace(key_t key, Args&&... args) noexcept(
-            ((not std::is_constructible_v<typename reg<Regs>::type, Args&&...> or std::is_nothrow_constructible_v<typename reg<Regs>::type, Args&&...>) 
+            ((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...> or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) 
             and ...)
         );
 
@@ -318,10 +318,10 @@ namespace etools::factories {
         * `std::get<I>(_slots)` yields `std::array<std::optional<T>, N>` for registration `I`.
         * The MPH maps a key to the tuple index in declaration order.
         */
-        std::tuple<std::array<std::optional<typename reg<Regs>::type>, reg<Regs>::count>...> _slots{};
+        std::tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
 
-        static_assert((not std::is_abstract_v<typename reg<Regs>::type> && ...), "registered type cannot be abstract: it cannot be constructed.");
-        static_assert((std::is_nothrow_destructible_v<typename reg<Regs>::type> && ...),
+        static_assert((not std::is_abstract_v<typename reg_t<Regs>::type> && ...), "registered type cannot be abstract: it cannot be constructed.");
+        static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> && ...),
             "registered type must be nothrow-destructible; destruction runs in noexcept paths.");
     };
 

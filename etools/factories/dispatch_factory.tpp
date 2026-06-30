@@ -28,8 +28,8 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     template <typename... Args>
     inline auto dispatch_factory<Base, Extractor, Regs...>::emplace(key_t key, Args&&... args)
-        noexcept(((not std::is_constructible_v<typename reg<Regs>::type, Args&&...>
-                   or std::is_nothrow_constructible_v<typename reg<Regs>::type, Args&&...>) and ...))
+        noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
+                   or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...))
         -> handle_t
     {
         constexpr const auto& table = mpht();
@@ -66,7 +66,7 @@ namespace etools::factories {
     {
         using table_t = etools::hashing::optimal_mph<key_t>;
         return table_t::template instance<
-            static_cast<key_t>(Extractor<typename reg<Regs>::type>::value)...
+            static_cast<key_t>(Extractor<typename reg_t<Regs>::type>::value)...
         >();
     }
 
@@ -80,7 +80,7 @@ namespace etools::factories {
         Base* result = nullptr;
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, &result, &out_slot, &args...](auto I) {
-                using target_t = typename reg<meta::nth_t<I(), Regs...>>::type;
+                using target_t = typename reg_t<meta::nth_t<I(), Regs...>>::type;
                 if constexpr (std::is_constructible_v<target_t, Args&&...>) {
                     auto& arr = std::get<I()>(_slots);
                     for (std::size_t i = 0; i < arr.size(); ++i) {
