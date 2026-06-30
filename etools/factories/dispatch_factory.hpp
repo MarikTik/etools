@@ -235,9 +235,10 @@ namespace etools::factories {
             "registered type cannot be abstract: it cannot be constructed.");
         static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> and ...),
             "registered type must be nothrow-destructible; destruction runs in noexcept paths.");
-        static_assert(meta::all_distinct_fast(
-            std::array<key_t, type_count>{static_cast<key_t>(Extractor<typename reg_t<Regs>::type>::value)...}
-        ), "registered types must have pairwise-distinct keys");
+        // Fires at class instantiation with a domain-specific message; the MPH
+        // backends repeat this check on first construction, but with a less clear message.
+        static_assert(meta::all_distinct_fast(std::array<key_t, type_count>{static_cast<key_t>(Extractor<typename reg_t<Regs>::type>::value)...}),
+            "registered types must have pairwise-distinct keys");
         /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         
     public:
