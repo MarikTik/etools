@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <etools/factories/dispatch_factory.hpp>
+#include <etools/factories/utils/capacity.hpp>
 #include <etools/hashing/optimal_mph.hpp>
 #include <etools/meta/typelist.hpp>
 
@@ -212,13 +213,13 @@ TEST(DispatchFactoryCompile, EmplaceReturnsOwningHandle) {
     static_assert(
         std::is_same_v<
             decltype(std::declval<f&>().emplace(std::declval<std::uint8_t>())),
-            f::handle
+            f::handle_t
         >,
         "emplace must return the owning handle"
     );
-    static_assert(std::is_same_v<f::handle::element_type, base>,
+    static_assert(std::is_same_v<f::handle_t::element_type, base>,
         "handle points at Base");
-    static_assert(not std::is_copy_constructible_v<f::handle>,
+    static_assert(not std::is_copy_constructible_v<f::handle_t>,
         "handle conveys unique ownership (move-only)");
 }
 
@@ -600,6 +601,7 @@ TEST(DispatchFactoryLifecycle, ConsecutiveEmplaceDifferentCategories) {
 
     auto p1 = f.emplace(c8::key, std::string("first"));
     ASSERT_NE(p1, nullptr);
+    p1.reset(); // free the slot before re-emplacing
 
     std::string s = "second";
     auto p2 = f.emplace(c8::key, s);
@@ -734,4 +736,329 @@ TEST(DispatchFactoryNullptr, RvalueArgumentNotConsumedOnFailedDispatch) {
     EXPECT_EQ(p, nullptr);
     ASSERT_NE(up.get(), nullptr) << "failed dispatch must not consume the rvalue";
     EXPECT_EQ(*up, 99);
+}
+
+// ===========================================================================
+// Multi-instance capacity
+// ===========================================================================
+
+using namespace factories::utils;
+
+// Factory with b8 holding 3 concurrent slots and a8 holding 1.
+using multi_factory = dispatch_factory<base, key_extractor,
+    capacity<a8, 1>,
+    capacity<b8, 3>>;
+
+TEST(DispatchFactoryMulti, EmplaceFillsFirstFreeSlot) {
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 10);
+    auto h1 = f.emplace(b8::key, 20);
+    auto h2 = f.emplace(b8::key, 30);
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(b8::ctor_calls, 3);
+
+    EXPECT_EQ(dynamic_cast<b8*>(h0.get())->value, 10);
+    EXPECT_EQ(dynamic_cast<b8*>(h1.get())->value, 20);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 30);
+}
+
+TEST(DispatchFactoryMulti, EmplaceWhenFull_ReturnsEmptyHandle) {
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 1);
+    auto h1 = f.emplace(b8::key, 2);
+    auto h2 = f.emplace(b8::key, 3);
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h2, nullptr);
+
+    auto h3 = f.emplace(b8::key, 4); // all 3 slots occupied
+    EXPECT_EQ(h3, nullptr);
+}
+
+TEST(DispatchFactoryMulti, DroppingHandle_FreesSlotForReuse) {
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 1);
+    auto h1 = f.emplace(b8::key, 2);
+    auto h2 = f.emplace(b8::key, 3);
+
+    h1.reset(); // free slot 1
+    EXPECT_EQ(b8::dtor_calls, 1);
+
+    auto h_new = f.emplace(b8::key, 99); // should reuse slot 1
+    ASSERT_NE(h_new, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h_new.get())->value, 99);
+
+    // h0 and h2 are unaffected
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h0.get())->value, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 3);
+}
+
+TEST(DispatchFactoryMulti, SlotsAreIndependent_DroppingOneDoesNotAffectOthers) {
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 10);
+    auto h1 = f.emplace(b8::key, 20);
+    auto h2 = f.emplace(b8::key, 30);
+
+    h0.reset();
+    EXPECT_EQ(b8::dtor_calls, 1);
+
+    // h1 and h2 still point to live objects
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h1.get())->value, 20);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 30);
+}
+
+TEST(DispatchFactoryMulti, DifferentTypesInSameFactory_IndependentStorage) {
+    multi_factory f;
+
+    auto ha = f.emplace(a8::key);
+    auto hb = f.emplace(b8::key, 7);
+    ASSERT_NE(ha, nullptr);
+    ASSERT_NE(hb, nullptr);
+    EXPECT_STREQ(ha->tag(), "a8");
+    EXPECT_STREQ(hb->tag(), "b8");
+}
+
+TEST(DispatchFactoryMulti, OverfillRepeated_AlwaysReturnsEmpty_ExistingSlotsUntouched) {
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 1);
+    auto h1 = f.emplace(b8::key, 2);
+    auto h2 = f.emplace(b8::key, 3);
+
+    // Repeatedly overfill - every attempt must return null, never corrupt existing slots.
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_EQ(f.emplace(b8::key, 99), nullptr) << "overfill attempt " << i;
+    }
+    EXPECT_EQ(b8::ctor_calls, 3) << "no extra constructions from failed emplaces";
+    EXPECT_EQ(b8::dtor_calls, 0);
+
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h0.get())->value, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(h1.get())->value, 2);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 3);
+}
+
+TEST(DispatchFactoryMulti, DropFirst_NextEmplaceTakesSlotZero) {
+    // emplace scans left-to-right; slot 0 freed first must be reused first.
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 10);
+    auto h1 = f.emplace(b8::key, 20);
+    auto h2 = f.emplace(b8::key, 30);
+    h0.reset();
+
+    auto h_new = f.emplace(b8::key, 100);
+    ASSERT_NE(h_new, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(h_new.get())->value, 100);
+
+    // Slots 1 and 2 hold their original values.
+    EXPECT_EQ(dynamic_cast<b8*>(h1.get())->value, 20);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 30);
+}
+
+TEST(DispatchFactoryMulti, DropAll_ThenRefill_AllSlotsReusable) {
+    b8::reset_counts();
+    multi_factory f;
+
+    {
+        auto h0 = f.emplace(b8::key, 1);
+        auto h1 = f.emplace(b8::key, 2);
+        auto h2 = f.emplace(b8::key, 3);
+    } // all three handles drop here
+
+    EXPECT_EQ(b8::dtor_calls, 3);
+
+    // All slots are free again - all three should be constructible.
+    auto h0 = f.emplace(b8::key, 10);
+    auto h1 = f.emplace(b8::key, 20);
+    auto h2 = f.emplace(b8::key, 30);
+    ASSERT_NE(h0, nullptr);
+    ASSERT_NE(h1, nullptr);
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(b8::ctor_calls, 6);
+}
+
+TEST(DispatchFactoryMulti, DropOutOfOrder_AllSlotsReusable) {
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 1);
+    auto h1 = f.emplace(b8::key, 2);
+    auto h2 = f.emplace(b8::key, 3);
+
+    // Drop in reverse order.
+    h2.reset();
+    h1.reset();
+    h0.reset();
+    EXPECT_EQ(b8::dtor_calls, 3);
+
+    // Refill - all three slots available again.
+    auto r0 = f.emplace(b8::key, 10);
+    auto r1 = f.emplace(b8::key, 20);
+    auto r2 = f.emplace(b8::key, 30);
+    ASSERT_NE(r0, nullptr);
+    ASSERT_NE(r1, nullptr);
+    ASSERT_NE(r2, nullptr);
+}
+
+TEST(DispatchFactoryMulti, ContinuousChurn_CtorDtorCountsMatch) {
+    b8::reset_counts();
+    multi_factory f;
+
+    for (int i = 0; i < 10; ++i) {
+        auto h = f.emplace(b8::key, i);
+        ASSERT_NE(h, nullptr) << "churn iteration " << i;
+    } // handle drops at end of each iteration
+
+    EXPECT_EQ(b8::ctor_calls, 10);
+    EXPECT_EQ(b8::dtor_calls, 10);
+}
+
+TEST(DispatchFactoryMulti, FillingOneType_DoesNotAffectOtherType) {
+    multi_factory f;
+
+    // Fill all b8 slots.
+    auto hb0 = f.emplace(b8::key, 1);
+    auto hb1 = f.emplace(b8::key, 2);
+    auto hb2 = f.emplace(b8::key, 3);
+    EXPECT_EQ(f.emplace(b8::key, 4), nullptr); // b8 full
+
+    // a8's single slot is unaffected.
+    auto ha = f.emplace(a8::key);
+    ASSERT_NE(ha, nullptr);
+    EXPECT_STREQ(ha->tag(), "a8");
+}
+
+TEST(DispatchFactoryMulti, OverfillingOneType_DoesNotAffectOtherType) {
+    b8::reset_counts();
+    multi_factory f;
+
+    // Fill and overfill b8.
+    auto hb0 = f.emplace(b8::key, 10);
+    auto hb1 = f.emplace(b8::key, 20);
+    auto hb2 = f.emplace(b8::key, 30);
+    for (int i = 0; i < 3; ++i)
+        EXPECT_EQ(f.emplace(b8::key, 99), nullptr);
+
+    // a8 still works and its slot is intact.
+    auto ha = f.emplace(a8::key);
+    ASSERT_NE(ha, nullptr);
+    EXPECT_EQ(dynamic_cast<a8*>(ha.get())->constructed, 1);
+
+    // b8 slots still hold their original values.
+    EXPECT_EQ(dynamic_cast<b8*>(hb0.get())->value, 10);
+    EXPECT_EQ(dynamic_cast<b8*>(hb1.get())->value, 20);
+    EXPECT_EQ(dynamic_cast<b8*>(hb2.get())->value, 30);
+}
+
+// Mixed capacities: three types, each with a different N.
+using mixed_factory = dispatch_factory<base, key_extractor,
+    capacity<a8, 1>,
+    capacity<b8, 3>,
+    capacity<c8, 2>>;
+
+TEST(DispatchFactoryMulti, MixedCapacities_EachTypeHasItsOwnLimit) {
+    mixed_factory f;
+
+    // a8: capacity 1
+    auto ha0 = f.emplace(a8::key);
+    ASSERT_NE(ha0, nullptr);
+    EXPECT_EQ(f.emplace(a8::key), nullptr); // full after 1
+
+    // b8: capacity 3
+    auto hb0 = f.emplace(b8::key, 1);
+    auto hb1 = f.emplace(b8::key, 2);
+    auto hb2 = f.emplace(b8::key, 3);
+    ASSERT_NE(hb0, nullptr);
+    ASSERT_NE(hb1, nullptr);
+    ASSERT_NE(hb2, nullptr);
+    EXPECT_EQ(f.emplace(b8::key, 4), nullptr); // full after 3
+
+    // c8: capacity 2
+    auto hc0 = f.emplace(c8::key, std::string("x"));
+    auto hc1 = f.emplace(c8::key, std::string("y"));
+    ASSERT_NE(hc0, nullptr);
+    ASSERT_NE(hc1, nullptr);
+    EXPECT_EQ(f.emplace(c8::key, std::string("z")), nullptr); // full after 2
+}
+
+TEST(DispatchFactoryMulti, MixedCapacities_SlotReuseIsPerType) {
+    mixed_factory f;
+
+    auto hb0 = f.emplace(b8::key, 10);
+    auto hb1 = f.emplace(b8::key, 20);
+    auto hb2 = f.emplace(b8::key, 30);
+    auto hc0 = f.emplace(c8::key, std::string("first"));
+    auto hc1 = f.emplace(c8::key, std::string("second"));
+
+    // Drop middle b8 and one c8.
+    hb1.reset();
+    hc0.reset();
+
+    // b8 slot 1 freed, c8 slot 0 freed - each type refills independently.
+    auto hb_new = f.emplace(b8::key, 99);
+    auto hc_new = f.emplace(c8::key, std::string("new"));
+    ASSERT_NE(hb_new, nullptr);
+    ASSERT_NE(hc_new, nullptr);
+    EXPECT_EQ(dynamic_cast<b8*>(hb_new.get())->value, 99);
+    EXPECT_EQ(dynamic_cast<c8*>(hc_new.get())->s, "new");
+
+    // Sibling slots still intact.
+    EXPECT_EQ(dynamic_cast<b8*>(hb0.get())->value, 10);
+    EXPECT_EQ(dynamic_cast<b8*>(hb2.get())->value, 30);
+    EXPECT_EQ(dynamic_cast<c8*>(hc1.get())->s, "second");
+}
+
+TEST(DispatchFactoryMulti, LargeCapacity_AllSlotsConstructibleAndIndependent) {
+    // capacity<b8, 8>: verify all 8 slots are distinct and hold correct values.
+    dispatch_factory<base, key_extractor, capacity<b8, 8>> f;
+    b8::reset_counts();
+
+    std::array<decltype(f)::handle_t, 8> handles;
+    for (int i = 0; i < 8; ++i) {
+        handles[i] = f.emplace(b8::key, i * 10);
+        ASSERT_NE(handles[i], nullptr) << "slot " << i;
+    }
+    EXPECT_EQ(b8::ctor_calls, 8);
+    EXPECT_EQ(f.emplace(b8::key, 999), nullptr); // 9th returns empty
+
+    for (int i = 0; i < 8; ++i)
+        EXPECT_EQ(dynamic_cast<b8*>(handles[i].get())->value, i * 10) << "slot " << i;
+}
+
+TEST(DispatchFactoryMulti, EmptyHandleFromOverfill_IsSafeToDestroy) {
+    // An empty handle returned from a failed emplace must be safely
+    // destructible without touching factory storage.
+    b8::reset_counts();
+    multi_factory f;
+
+    auto h0 = f.emplace(b8::key, 1);
+    auto h1 = f.emplace(b8::key, 2);
+    auto h2 = f.emplace(b8::key, 3);
+
+    {
+        auto bad = f.emplace(b8::key, 99); // empty handle
+        EXPECT_EQ(bad, nullptr);
+    } // bad drops here - must not call reset or touch any slot
+
+    EXPECT_EQ(b8::dtor_calls, 0) << "empty handle drop must not destroy any object";
+    EXPECT_EQ(dynamic_cast<b8*>(h0.get())->value, 1);
+    EXPECT_EQ(dynamic_cast<b8*>(h1.get())->value, 2);
+    EXPECT_EQ(dynamic_cast<b8*>(h2.get())->value, 3);
 }
