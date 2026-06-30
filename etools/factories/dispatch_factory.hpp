@@ -328,6 +328,19 @@ namespace etools::factories {
     /**
     * @brief Typelist adapter: unwraps `meta::typelist<Ts...>` and delegates to the primary
     *        `dispatch_factory`. Bare types and `capacity<T,N>` tags may be mixed in the list.
+    *
+    * @tparam Base      Polymorphic base type.
+    * @tparam Extractor Key-extractor template.
+    * @tparam Ts...     Types or `capacity<T,N>` tags listed inside the typelist.
+    *
+    * @par Example
+    * @code
+    * using types = meta::typelist<cat, dog, fish>;
+    * dispatch_factory<animal, key_of, types> f;           // bare types, each N=1
+    *
+    * using tagged = meta::typelist<cat, capacity<dog, 3>, fish>;
+    * dispatch_factory<animal, key_of, tagged> f2;         // mixed capacities
+    * @endcode
     */
     template<typename Base, template<typename> typename Extractor, typename... Ts>
     class dispatch_factory<Base, Extractor, meta::typelist<Ts...>>
