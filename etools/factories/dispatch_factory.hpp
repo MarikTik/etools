@@ -159,18 +159,11 @@ namespace etools::factories {
         template<typename R>
         using reg_t = details::as_capacity_t<R>;
 
-        /**
-        * @typedef sample_t
-        *
-        * @brief The first derived type used to deduce key type.
-        */
-        using sample_t  = typename reg_t<meta::nth_t<0, Regs...>>::type;
-
         /** @typedef key_t
         *
         * @brief The type of the unique key for each derived type, deduced via Extractor metafunction.
         */
-        using key_t  = std::remove_cv_t<decltype(Extractor<sample_t>::value)>;
+        using key_t = std::remove_cv_t<decltype(Extractor<typename reg_t<meta::nth_t<0, Regs...>>::type>::value)>;
 
         /**
         * @brief Number of distinct registered types (equals sizeof...(Regs)).
@@ -192,18 +185,12 @@ namespace etools::factories {
         */
         using slot_index_t = meta::smallest_uint_t<max_count - 1>;
 
-        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg_t<Regs>::type>::value)>> and ...), "all registered types must expose the same key type");
-        static_assert(sizeof...(Regs) > 0, "register at least one type");
-        static_assert(((reg_t<Regs>::count > 0) and ...), "capacity<T, N> requires N > 0");
-
         /**
         * @brief Custom deleter for the owning handle returned by `emplace`.
         *
         * Does **not** free memory (the object lives in the factory's array cell);
         * instead it calls the factory's private `reset(key, slot_index)`, which runs
         * the matching `std::optional`'s destructor in place. Zero-allocation RAII.
-        * A default-constructed deleter (`factory == nullptr`) is a no-op, which is
-        * what an empty (failed) handle carries.
         *
         * @warning The handle must not outlive the factory: the deleter dereferences `factory`.
         */
@@ -215,12 +202,24 @@ namespace etools::factories {
             * @brief Called by `unique_ptr` when the handle is dropped or reset.
             *
             * Calls `factory->reset(key, slot_index)` to destroy the object in its
-            * array cell in place. A null `factory` (empty handle) is a no-op.
+            * array cell in place. Only invoked by `unique_ptr` when the stored
+            * pointer is non-null, which only occurs for successfully emplaced handles.
             *
             * @param[in] p  Pointer to the `Base` subobject (unused - storage is in the cell).
             */
             void operator()(Base* p) const noexcept;
         };
+
+        ////////////////// contracts //////////////////
+        static_assert(sizeof...(Regs) > 0, "register at least one type");
+        static_assert((std::is_base_of_v<Base, typename reg_t<Regs>::type> and ...), "every registered type must derive from Base");
+        static_assert((std::is_same_v<key_t, std::remove_cv_t<decltype(Extractor<typename reg_t<Regs>::type>::value)>> and ...), "all registered types must expose the same key type");
+        static_assert(((reg_t<Regs>::count > 0) and ...), "capacity<T, N> requires N > 0");
+        static_assert((not std::is_abstract_v<typename reg_t<Regs>::type> && ...), "registered type cannot be abstract: it cannot be constructed.");
+        static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> && ...),
+            "registered type must be nothrow-destructible; destruction runs in noexcept paths."); 
+        //////////////////////////////////////////////
+        
     public:
         /**
         * @brief Owning handle to a constructed object: a `unique_ptr<Base>` whose deleter
@@ -274,9 +273,11 @@ namespace etools::factories {
 
     private:
         /**
-        * @brief Destroy the object at `slot_index` within the cell for `key`, if any.
+        * @brief Destroy the object at `slot_index` within the cell for `key`.
         *
-        * Private: the only caller is `cell_deleter`. No-op if `key` is unknown or cell empty.
+        * Private: the only caller is `cell_deleter`. Both `key` and `slot_index` must
+        * be valid (they originate from a successful `emplace`); violations are caught
+        * by `assert` in debug builds.
         */
         void reset(key_t key, slot_index_t slot_index) noexcept;
         /**
@@ -289,11 +290,15 @@ namespace etools::factories {
         * @param[in] index  Runtime index to match.
         * @param[in] fn     Action to invoke on the matching index.
         *
+        * @note `noexcept` is conditional: propagates from `Fn`. Callers that supply a
+        *       `noexcept` lambda (e.g. `reset`) remain noexcept; callers that supply a
+        *       potentially-throwing lambda (e.g. `dispatch`) inherit that possibility.
         * @note Zero runtime overhead: `Fn` is monomorphized and the constant is folded
         *       by the compiler at any optimization level.
         */
         template<std::size_t... Is, typename Fn>
-        static void index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn) noexcept;
+        static void index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn)
+            noexcept(noexcept(fn(std::integral_constant<std::size_t, 0>{})));
         /**
         * @brief Accessor for the canonical compile-time lookup artifact.
         *
@@ -309,9 +314,15 @@ namespace etools::factories {
         *
         * @return Pointer to the constructed base subobject, or `nullptr` if the type is not
         *         constructible from `Args` or all its slots are occupied.
+        *
+        * @note `noexcept` mirrors `emplace`: noexcept iff every type constructible from
+        *       `Args...` is also nothrow-constructible. The lambda passed to `index_dispatch`
+        *       carries the same spec, so the noexcept guarantee threads all the way through.
         */
         template<typename... Args>
-        Base* dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args);
+        Base* dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
+            noexcept(((not std::is_constructible_v<typename reg_t<Regs>::type, Args&&...>
+                       or std::is_nothrow_constructible_v<typename reg_t<Regs>::type, Args&&...>) and ...));
         /**
         * @brief Owned storage: one array of optionals per registered type, in declaration order.
         *
@@ -319,10 +330,6 @@ namespace etools::factories {
         * The MPH maps a key to the tuple index in declaration order.
         */
         std::tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
-
-        static_assert((not std::is_abstract_v<typename reg_t<Regs>::type> && ...), "registered type cannot be abstract: it cannot be constructed.");
-        static_assert((std::is_nothrow_destructible_v<typename reg_t<Regs>::type> && ...),
-            "registered type must be nothrow-destructible; destruction runs in noexcept paths.");
     };
 
     /**
