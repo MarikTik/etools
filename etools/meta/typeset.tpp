@@ -13,7 +13,7 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
-#ifndef ETOOLS_META_TYPESET_TPP_
+#ifndef ETOOLS_META_TYEPSET_TPP_
 #define ETOOLS_META_TYEPSET_TPP_
 #include "typeset.hpp"
 
