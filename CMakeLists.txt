@@ -1,5 +1,5 @@
 # Top-level CMakeLists.txt for etools
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.20)
 project(etools LANGUAGES CXX)
 
 # ---------------------------------------------------------------------------------------
