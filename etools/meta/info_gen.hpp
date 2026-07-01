@@ -44,10 +44,10 @@
 * @note <member> means any qualified name in a type T besides typedefs, so this metafunction
 * checks for member variables, static member variables, instance methods, static methods.
 *
-* @warning This macro uses SFINAE based on taking the address of the member (`&T::member`).
-* It may not correctly detect static members or members that cannot have their address taken.
-* It generally requires the member to be accessible from the context where the trait is used
-* i.e. be `public` accessible.
+* @warning The member must be accessible from the current context (i.e. `public`).
+* It cannot have its address taken (e.g. bit-fields are not detectable).
+* If the member is a function with multiple overloads `&T::member` is ambiguous and
+* the trait will fail to compile - use `generate_has_method` instead for that case.
 *
 * @example
 * // Generate the trait for a member named 'id'
@@ -268,5 +268,155 @@ namespace etools::meta {                                                        
     inline constexpr bool has_nested_type_##nested_type##_v =                       \
         has_nested_type_##nested_type<T>::value;                                    \
 } // etools::meta
- 
+
+
+/**
+* @brief Generates a type trait to detect the presence of a public non-static member function.
+*
+* This macro defines a template struct `has_method_<method>` that evaluates to `true` if
+* `T` has a public non-static member function named `<method>`, and `false` otherwise.
+* It also defines a helper variable template `has_method_<method>_v`.
+*
+* The detection is performed via `std::is_member_function_pointer_v<decltype(&T::method)>`,
+* which resolves unambiguously only when `method` is **not overloaded**. For types that
+* declare multiple overloads of the same name, use `generate_has_callable` instead.
+*
+* @param method The name of the member function to check for.
+*
+* @note Detects only non-static member functions. Static methods, member variables,
+* and static data members are excluded by the `is_member_function_pointer_v` guard.
+*
+* @warning Fails to compile (ambiguous address-of) when `T::method` is overloaded.
+* Use `generate_has_callable(method)` for the overload-safe alternative.
+*
+* @example
+* generate_has_method(init)
+*
+* struct A { void init(); };
+* struct B { static void init(); };
+* struct C { int init; };
+* struct D {};
+*
+* static_assert( etools::meta::has_method_init_v<A>);   // non-static method
+* static_assert(!etools::meta::has_method_init_v<B>);   // static method
+* static_assert(!etools::meta::has_method_init_v<C>);   // member variable
+* static_assert(!etools::meta::has_method_init_v<D>);   // absent
+*/
+#define generate_has_method(method)                                                    \
+namespace etools::meta {                                                               \
+    template <typename T, typename = void>                                             \
+    struct has_method_##method : std::false_type {};                                   \
+                                                                                       \
+    template <typename T>                                                              \
+    struct has_method_##method<                                                        \
+        T, std::enable_if_t<                                                           \
+            std::is_member_function_pointer_v<decltype(&T::method)>                    \
+        >                                                                              \
+    > : std::true_type {};                                                             \
+                                                                                       \
+    template <typename T>                                                              \
+    inline constexpr bool has_method_##method##_v = has_method_##method<T>::value;    \
+} // etools::meta
+
+
+/**
+* @brief Generates a type trait to detect whether a type exposes a callable named `<method>`
+*        that can be invoked on an lvalue of that type with no arguments.
+*
+* This macro defines a template struct `has_callable_<method>` that evaluates to `true` if
+* the expression `std::declval<T&>().<method>()` is well-formed, and `false` otherwise.
+* It also defines a helper variable template `has_callable_<method>_v`.
+*
+* Unlike `generate_has_method`, this trait is **overload-safe**: it succeeds whenever any
+* overload of `method` accepts zero arguments, and it does not take the address of the method.
+* It also naturally handles types that expose `operator()` proxies or `auto`-return methods.
+*
+* @param method The name of the callable member to detect.
+*
+* @note Detects any member accessible and callable with no arguments: non-static methods,
+* static methods called via an instance, and even `auto` / template methods that deduce to
+* a no-argument call.
+*
+* @note Does not distinguish between static and non-static methods - it only tests callability.
+* Use `generate_has_method` or `generate_has_static_member` if the distinction matters.
+*
+* @example
+* generate_has_callable(update)
+*
+* struct A { void update(); };
+* struct B { void update(int); };     // no no-arg overload
+* struct C { void update(); void update(int); };  // overloaded - no-arg exists
+* struct D {};
+*
+* static_assert( etools::meta::has_callable_update_v<A>);
+* static_assert(!etools::meta::has_callable_update_v<B>);
+* static_assert( etools::meta::has_callable_update_v<C>);
+* static_assert(!etools::meta::has_callable_update_v<D>);
+*/
+#define generate_has_callable(method)                                                  \
+namespace etools::meta {                                                               \
+    template <typename T, typename = void>                                             \
+    struct has_callable_##method : std::false_type {};                                 \
+                                                                                       \
+    template <typename T>                                                              \
+    struct has_callable_##method<                                                      \
+        T, std::void_t<decltype(std::declval<T&>().method())>                          \
+    > : std::true_type {};                                                             \
+                                                                                       \
+    template <typename T>                                                              \
+    inline constexpr bool has_callable_##method##_v =                                 \
+        has_callable_##method<T>::value;                                               \
+} // etools::meta
+
+
+/**
+* @brief Generates a type trait to detect the presence of a public static member function.
+*
+* This macro defines a template struct `has_static_method_<method>` that evaluates to `true`
+* if `T` has a public static member function named `<method>`, and `false` otherwise.
+* It also defines a helper variable template `has_static_method_<method>_v`.
+*
+* Detection relies on `std::is_function_v<std::remove_pointer_t<decltype(&T::method)>>`:
+* a static member function decays to a regular function pointer, whereas instance methods
+* yield member function pointers and static data members yield object pointers.
+*
+* @param method The name of the static member function to check for.
+*
+* @note This complements `generate_has_static_member_variable` (static data only) and
+* `generate_has_static_member` (static data or function). Together the three macros let
+* you pinpoint exactly which kind of static member a type exposes.
+*
+* @warning Fails to compile (ambiguous address-of) when `T::method` is overloaded.
+*
+* @example
+* generate_has_static_method(create)
+*
+* struct A { static A create(); };
+* struct B { static int create; };   // static data, not a function
+* struct C { A create(); };          // non-static method
+* struct D {};
+*
+* static_assert( etools::meta::has_static_method_create_v<A>);
+* static_assert(!etools::meta::has_static_method_create_v<B>);
+* static_assert(!etools::meta::has_static_method_create_v<C>);
+* static_assert(!etools::meta::has_static_method_create_v<D>);
+*/
+#define generate_has_static_method(method)                                                      \
+namespace etools::meta {                                                                         \
+    template <typename T, typename = void>                                                       \
+    struct has_static_method_##method : std::false_type {};                                      \
+                                                                                                 \
+    template <typename T>                                                                        \
+    struct has_static_method_##method<                                                           \
+        T, std::enable_if_t<                                                                     \
+            std::is_function_v<std::remove_pointer_t<decltype(&T::method)>> &&                   \
+            !std::is_member_pointer_v<decltype(&T::method)>                                      \
+        >                                                                                        \
+    > : std::true_type {};                                                                       \
+                                                                                                 \
+    template <typename T>                                                                        \
+    inline constexpr bool has_static_method_##method##_v =                                      \
+        has_static_method_##method<T>::value;                                                    \
+} // etools::meta
+
 #endif //ETOOLS_INFO_GEN_HPP_
