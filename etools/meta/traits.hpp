@@ -326,7 +326,7 @@ namespace etools::meta {
     using member_t = typename member<Extractor, Ts...>::type;
     
     
-    #if ETOOLS_HAS_TYPE_PACK_ELEMENT
+    #if __has_builtin(__type_pack_element)
         /**
         * @brief Fast pack indexing using compiler builtin when available.
         *
@@ -387,7 +387,7 @@ namespace etools::meta {
             template <std::size_t I, class... Ts>
             using pack_at_t = typename type_pack_view<Ts...>::template at<I>;
         } // namespace details
-        #endif // ETOOLS_HAS_TYPE_PACK_ELEMENT
+        #endif // __has_builtin(__type_pack_element)
 
         namespace details{
             /**
