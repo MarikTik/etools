@@ -112,21 +112,6 @@
 #include <type_traits>
 #include <utility>
 namespace etools::factories {
-    namespace details {
-        /**
-        * @brief Normalises a registration argument to `utils::capacity<T, N>`.
-        *
-        * A bare `T` becomes `capacity<T, 1>`; an already-wrapped `capacity<T, N>`
-        * passes through unchanged. Used by the public facade to allow mixing bare
-        * types and explicit `capacity<>` registrations in the same argument list.
-        */
-        template<typename T>
-        struct as_capacity { using type = utils::capacity<T, 1>; };
-        template<typename T, std::size_t N>
-        struct as_capacity<utils::capacity<T, N>> { using type = utils::capacity<T, N>; };
-        template<typename T>
-        using as_capacity_t = typename as_capacity<T>::type;
-    } // namespace details
 
     /**
     * @class dispatch_factory
@@ -154,10 +139,17 @@ namespace etools::factories {
     */
     template<typename Base, template<typename> typename Extractor, typename... Regs>
     class dispatch_factory {
-        // Normalise every Reg to capacity<T,N> uniformly, so bare types and
-        // capacity<> tags are handled identically throughout the class body.
+        /**
+        * @typedef reg_t
+        * @brief Normalises a registration argument to `utils::capacity<T, N>`.
+        *
+        * Delegates to `utils::as_capacity_t`: a bare `R` becomes `capacity<R, 1>`;
+        * an already-wrapped `capacity<R, N>` passes through unchanged.
+        *
+        * @tparam R Either a bare derived type or a `capacity<R, N>` tag.
+        */
         template<typename R>
-        using reg_t = details::as_capacity_t<R>;
+        using reg_t = utils::as_capacity_t<R>;
 
         /** @typedef key_t
         *
