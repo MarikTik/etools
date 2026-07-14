@@ -40,6 +40,8 @@ auto h = factory.emplace(A::key, /* ctor args */);   // handle_t = unique_ptr<Ba
   - [flags.hpp](#flagshpp)
   - [info_gen.hpp](#info_genhpp)
   - [utility.hpp](#utilityhpp)
+  - [overload.hpp](#overloadhpp)
+  - [unique_variant.hpp](#unique_varianthpp)
 - [Module: etools/hashing](#module-etoolshashing)
   - [utils.hpp](#utils-hashing)
   - [llut.hpp](#lluthpp)
@@ -675,6 +677,93 @@ compile time with a clear diagnostic.
 
 ---
 
+### overload.hpp
+
+Provides `overload<Fs...>`: the standard C++17 "overloaded visitor" idiom that merges
+multiple callables into a single overload set. The primary use case is `std::visit` -
+one lambda per variant alternative rather than a monolithic visitor.
+
+```cpp
+#include "etools/meta/overload.hpp"
+
+std::variant<int, float, std::string> v = 3.14f;
+
+std::visit(etools::meta::overload{
+    [](int i)                { /* handle int    */ },
+    [](float f)              { /* handle float  */ },
+    [](const std::string& s) { /* handle string */ },
+}, v);
+```
+
+The deduction guide makes explicit template arguments unnecessary; `overload{f1, f2}`
+deduces `overload<F1, F2>` automatically.
+
+**Constraints:**
+- Every `Fs` must be copy- or move-constructible (stateful lambdas captured by value
+  satisfy this trivially).
+- If two callables accept the same argument types, the overload set is ill-formed and
+  the compiler reports the conflict at the call site.
+
+`overload` pairs naturally with `unique_variant_t` (see below): deduplicate the variant's
+alternative list first, then visit with one lambda per unique alternative.
+
+---
+
+### unique_variant.hpp
+
+Builds a `std::variant` (or intermediate `typelist`) over the **distinct** types in a
+parameter pack, preserving first-occurrence order and silently dropping repeats.
+
+#### Why this is necessary
+
+`std::variant<int, int>` is well-formed, but two things immediately break once a type
+appears more than once:
+
+- **Converting construction** (`variant{value}`) becomes ambiguous when multiple
+  alternatives could accept the value, forcing callers to use `std::in_place_index<N>`.
+- **`std::visit` with `overload{...}`** is ill-formed outright: two lambdas taking the
+  same type collide when their `operator()`s are merged via `using Fs::operator()...`.
+
+The fix must happen at the type level, before the variant is formed. `unique_variant_t`
+deduplicates the pack first so both usages remain unambiguous regardless of how many
+times a type recurs.
+
+#### Public API
+
+| Alias | Result |
+|-------|--------|
+| `unique_typelist_t<Ts...>` | `typelist</* distinct Ts in first-occurrence order */>` |
+| `unique_variant_t<Ts...>` | `std::variant</* distinct Ts in first-occurrence order */>` |
+
+```cpp
+#include "etools/meta/unique_variant.hpp"
+#include "etools/meta/overload.hpp"
+
+struct producer_a { using payload_t = int;    };
+struct producer_b { using payload_t = double; };
+struct producer_c { using payload_t = int;    };  // same as producer_a
+
+using payload_t = etools::meta::unique_variant_t<
+    producer_a::payload_t,
+    producer_b::payload_t,
+    producer_c::payload_t
+>;
+static_assert(std::is_same_v<payload_t, std::variant<int, double>>);
+
+payload_t p{3.14};
+std::visit(etools::meta::overload{
+    [](int i)    { /* ... */ },
+    [](double d) { /* ... */ },
+}, p);
+```
+
+Use `unique_typelist_t` when the deduplicated pack needs to feed something other than
+`std::variant` (a dispatch table, another tagged-union type, further metaprogramming).
+Use `is_distinct_v` (`traits.hpp`) instead when duplicates should be a compile error
+rather than silently collapsed.
+
+---
+
 ## Module: etools/hashing
 
 All hashing utilities live in namespace `etools::hashing`.
@@ -1263,6 +1352,8 @@ etools/
     typeset.hpp               # typeset<Ts...> - bitset-backed per-type flags
     flags.hpp                 # Bitwise operators for opted-in enum class bitmasks
     info_gen.hpp              # Introspection macros (generate_has_member, ...)
+    overload.hpp              # overload<Fs...> - merged callable overload set for std::visit
+    unique_variant.hpp        # unique_variant_t / unique_typelist_t - deduplicated variant
     utility.hpp               # tpack_max, all_distinct_fast, ...
 
   hashing/
