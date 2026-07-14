@@ -28,6 +28,8 @@
 #include "info_gen.hpp"
 #include "overload.hpp"
 #include "traits.hpp"
+#include "typelist.hpp"
 #include "typeset.hpp"
+#include "unique_variant.hpp"
 #include "utility.hpp"
 #endif //ETOOLS_META_HPP_
