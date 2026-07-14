@@ -26,6 +26,7 @@
 #define ETOOLS_META_HPP_
 #include "flags.hpp"
 #include "info_gen.hpp"
+#include "overload.hpp"
 #include "traits.hpp"
 #include "typeset.hpp"
 #include "utility.hpp"
