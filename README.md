@@ -42,6 +42,7 @@ auto h = factory.emplace(A::key, /* ctor args */);   // handle_t = unique_ptr<Ba
   - [utility.hpp](#utilityhpp)
   - [overload.hpp](#overloadhpp)
   - [unique_variant.hpp](#unique_varianthpp)
+  - [sort.hpp](#sorthpp)
 - [Module: etools/hashing](#module-etoolshashing)
   - [utils.hpp](#utils-hashing)
   - [llut.hpp](#lluthpp)
@@ -764,6 +765,71 @@ rather than silently collapsed.
 
 ---
 
+### sort.hpp
+
+Stable compile-time sort of a parameter pack using a caller-supplied binary comparator
+metafunction. Produces a `typelist` in the requested order.
+
+#### Comparator contract
+
+`Cmp` is a template of the form:
+
+```cpp
+template<typename T, typename U>
+struct MyCmp : std::bool_constant</* true if T should come before U */> {};
+```
+
+It must satisfy strict weak ordering (irreflexive, asymmetric, transitive). Types for
+which neither `Cmp<T,U>` nor `Cmp<U,T>` holds are considered equivalent; their
+relative order in the output matches their input order (the sort is **stable**).
+
+#### Built-in comparators
+
+| Comparator | Ordering |
+|------------|----------|
+| `size_greater<T,U>` | Largest `sizeof` first |
+| `size_less<T,U>` | Smallest `sizeof` first |
+| `align_greater<T,U>` | Strictest `alignof` first |
+| `align_less<T,U>` | Weakest `alignof` first |
+
+#### API
+
+| Alias / struct | Result |
+|----------------|--------|
+| `sort_t<Cmp, Ts...>` | `typelist</* Ts sorted by Cmp */>` |
+| `sort_t<Cmp, typelist<Ts...>>` | Same, accepting a `typelist` directly |
+| `sort<Cmp, Ts...>::type` | Struct form of the above |
+
+```cpp
+#include "etools/meta/sort.hpp"
+using namespace etools::meta;
+
+// Sort by descending size - useful for padding-free struct layout.
+using sorted = sort_t<size_greater, char, double, int, float>;
+static_assert(std::is_same_v<sorted, typelist<double, int, float, char>>);
+
+// Accepts a typelist directly.
+using in_list = typelist<char, double, int, float>;
+static_assert(std::is_same_v<sort_t<size_greater, in_list>, sorted>);
+
+// Custom comparator: trivial types before non-trivial.
+template<typename T, typename U>
+struct prefer_trivial : std::bool_constant<
+    std::is_trivial_v<T> && !std::is_trivial_v<U>
+> {};
+
+using sorted2 = sort_t<prefer_trivial, std::string, int, std::vector<int>, float>;
+// int and float precede std::string and std::vector<int>
+```
+
+The algorithm is top-down merge sort: O(N log N) instantiation depth and O(log N)
+maximum recursion depth. The pack is split into two halves by distributing elements
+alternately (riffle split), each half is sorted recursively, and the sorted halves
+are merged. The merge step favours the left half on equivalence, which is what
+preserves stability.
+
+---
+
 ## Module: etools/hashing
 
 All hashing utilities live in namespace `etools::hashing`.
@@ -1353,6 +1419,7 @@ etools/
     flags.hpp                 # Bitwise operators for opted-in enum class bitmasks
     info_gen.hpp              # Introspection macros (generate_has_member, ...)
     overload.hpp              # overload<Fs...> - merged callable overload set for std::visit
+    sort.hpp                  # sort_t<Cmp, Ts...> - stable O(N log N) compile-time sort by comparator
     unique_variant.hpp        # unique_variant_t / unique_typelist_t - deduplicated variant
     utility.hpp               # tpack_max, all_distinct_fast, ...
 

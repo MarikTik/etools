@@ -30,6 +30,7 @@
 #include "traits.hpp"
 #include "typelist.hpp"
 #include "typeset.hpp"
+#include "sort.hpp"
 #include "unique_variant.hpp"
 #include "utility.hpp"
 #endif //ETOOLS_META_HPP_
