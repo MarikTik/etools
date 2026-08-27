@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
+  "name": "etools",
+  "version": "1.1.0",
+  "description": "Header-only C++17 foundation utilities for embedded work: compile-time typelists and traits, zero-allocation dispatch factories with in-place storage, buffer views over raw memory, and compile-time hashing. The tools layer of elib.",
+  "keywords": [
+    "metaprogramming",
+    "typelist",
+    "traits",
+    "factory",
+    "buffer",
+    "hashing",
+    "embedded",
+    "header-only"
+  ],
+  "homepage": "https://github.com/MarikTik/etools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MarikTik/etools.git"
+  },
+  "authors": [
+    {
+      "name": "Mark Tikhonov",
+      "email": "mtik.philosopher@gmail.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": [
+    "etools/etools.hpp"
+  ],
+  "dependencies": [
+    {
+      "owner": "MarikTik",
+      "name": "eser",
+      "version": "^1.1.0"
+    }
+  ],
+  "build": {
+    "srcDir": ".",
+    "srcFilter": [
+      "-<*>"
+    ],
+    "flags": [
+      "-std=gnu++17"
+    ],
+    "libArchive": false
+  },
+  "export": {
+    "include": [
+      "etools/**",
+      "library.json",
+      "LICENSE",
+      "README.md"
+    ],
+    "exclude": [
+      "build/**",
+      "tests/**",
+      "tools/**",
+      "project/**"
+    ]
+  }
+}
