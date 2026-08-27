@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
   "name": "etools",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Header-only C++17 foundation utilities for embedded work: compile-time typelists and traits, zero-allocation dispatch factories with in-place storage, buffer views over raw memory, and compile-time hashing. The tools layer of elib.",
   "keywords": [
     "metaprogramming",
@@ -35,7 +35,7 @@
     {
       "owner": "MarikTik",
       "name": "eser",
-      "version": "^1.1.0"
+      "version": "^1.1.1"
     }
   ],
   "build": {
