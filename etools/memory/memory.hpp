@@ -20,4 +20,5 @@
 #include "buffer.hpp"
 #include "buffer_view.hpp"
 #include "slot.hpp"
+#include "static_vector.hpp"
 #endif // ETOOLS_MEMORY_MEMORY_HPP_
