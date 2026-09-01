@@ -151,9 +151,14 @@ namespace etools::factories {
     Base* dispatch_factory<Base, Extractor, Regs...>::dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
         noexcept(nothrow_emplace_v<Args...>)
     {
-        // Compilation bottleneck for very large registries (>2000 types) due to nth_t.
-        // For k constructor signatures and n types: O(k*n) compile time.
-        // Future: replace nth_t with meta::pack_at_t to amortize to O(n+k).
+        // This function is the compilation bottleneck for a large registry: one
+        // call site instantiates a body per registered type, and measured at 260
+        // types a single `emplace<buffer_view>` took the translation unit from
+        // 3.94 s to 21.24 s.
+        //
+        // It is *not* `nth_t`, which an earlier note here blamed: `nth_t` resolves
+        // through `__type_pack_element` (see meta/traits.hpp), so it is O(1) per
+        // lookup, and instantiating it for all 260 indices measures 0.23 s.
         Base* result = nullptr;
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, &result, &out_slot, &args...](auto I)
