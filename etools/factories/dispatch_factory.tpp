@@ -169,14 +169,16 @@ namespace etools::factories {
     Base* dispatch_factory<Base, Extractor, Regs...>::dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
         noexcept(nothrow_emplace_v<Args...>)
     {
-        // This function is the compilation bottleneck for a large registry: one
-        // call site instantiates a body per registered type, and measured at 260
-        // types a single `emplace<buffer_view>` took the translation unit from
-        // 3.94 s to 21.24 s.
+        // One `emplace` call site instantiates a body per registered type, so
+        // this function's cost is linear in the registry and paid again for every
+        // distinct `Args...`. Measured at 260 types, GCC 15 -Os: 2.09 s for the
+        // factory alone, 7.66 s once a single `emplace<buffer_view>` is added.
         //
-        // It is *not* `nth_t`, which an earlier note here blamed: `nth_t` resolves
-        // through `__type_pack_element` (see meta/traits.hpp), so it is O(1) per
-        // lookup, and instantiating it for all 260 indices measures 0.23 s.
+        // Two things it is *not*. Not `nth_t`, which an earlier note here blamed:
+        // it resolves through `__type_pack_element` (see meta/traits.hpp), so it
+        // is O(1) per lookup and all 260 indices cost 0.23 s. And not the
+        // dominant term in a large build - the destructor's emptiness check was
+        // three times this, for the reason documented there.
         Base* result = nullptr;
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, &result, &out_slot, &args...](auto I)
