@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /**
-* @file flat_tuple.hpp
+* @file tuple.hpp
 *
 * @brief A heterogeneous container whose template instantiation depth does not
 *        grow with the number of elements.
@@ -27,7 +27,7 @@
 * and the recursive layout dominated compile time. Measured with GCC 15 on
 * `std::tuple<std::array<std::optional<T_i>, 1>...>`:
 *
-*     elements | std::tuple        | flat_tuple        | speedup
+*     elements | std::tuple        | meta::tuple       | speedup
 *          260 |   1.94 s,  383 MB |   0.60 s,  205 MB |    3.2x
 *          520 |   9.72 s,  877 MB |   1.34 s,  374 MB |    7.3x
 *         1040 | does not compile  |   2.77 s,  714 MB |      -
@@ -56,7 +56,7 @@
 *       layout guarantee across distinct base classes, so do not depend on the
 *       address order of elements.
 * @note Two identical types are kept distinct by the index in `leaf<I, T>`, so
-*       `flat_tuple<int, int>` is well-formed.
+*       `tuple<int, int>` is well-formed.
 *
 * @author Mark Tikhonov <mtik.philosopher@gmail.com>
 *
@@ -67,8 +67,8 @@
 * Copyright (c) 2025 Mark Tikhonov
 * See the accompanying LICENSE file for details.
 */
-#ifndef ETOOLS_META_FLAT_TUPLE_HPP_
-#define ETOOLS_META_FLAT_TUPLE_HPP_
+#ifndef ETOOLS_META_TUPLE_HPP_
+#define ETOOLS_META_TUPLE_HPP_
 
 #include <cstddef>
 #include <type_traits>
@@ -94,7 +94,7 @@ namespace etools::meta {
     } // namespace detail
 
     template<typename... Ts>
-    struct flat_tuple
+    struct tuple
         : detail::flat_impl<std::index_sequence_for<Ts...>, Ts...>
     {
         static constexpr std::size_t size = sizeof...(Ts);
@@ -108,7 +108,7 @@ namespace etools::meta {
     constexpr const T& get(const detail::leaf<I, T>& l) noexcept { return l.value; }
 
     template<typename Fn, typename... Ts, std::size_t... Is>
-    constexpr void for_each_impl(flat_tuple<Ts...>& t, Fn&& fn, std::index_sequence<Is...>)
+    constexpr void for_each_impl(tuple<Ts...>& t, Fn&& fn, std::index_sequence<Is...>)
     {
         (fn(get<Is>(t)), ...);
     }
@@ -116,11 +116,11 @@ namespace etools::meta {
     /// @brief Applies `fn` to every element. Replaces `std::apply` for folds
     ///        over the whole tuple; one pack expansion, no recursion.
     template<typename Fn, typename... Ts>
-    constexpr void for_each(flat_tuple<Ts...>& t, Fn&& fn)
+    constexpr void for_each(tuple<Ts...>& t, Fn&& fn)
     {
         for_each_impl(t, std::forward<Fn>(fn), std::index_sequence_for<Ts...>{});
     }
 
 } // namespace etools::meta
 
-#endif // ETOOLS_META_FLAT_TUPLE_HPP_
+#endif // ETOOLS_META_TUPLE_HPP_
