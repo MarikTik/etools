@@ -25,12 +25,19 @@
 *   Bare types are accepted and treated as `capacity<T, 1>`.
 *
 * ## Compile-time Considerations
-* - Dispatch is implemented via a fold expression across all registered types.
-* - For very large registries (1,000+ types with many constructor variations),
-*   compile times may become significant. On non-professional systems this can
-*   impact developer experience. The generated code remains efficient at runtime.
-* - **Compile-time:** Roughly O(N x K), where N is the number of registered types
-*   and K is the number of distinct constructor argument signatures seen.
+* - Dispatch is implemented via a fold expression across all registered types, so
+*   **each `emplace` call site instantiates one body per registered type**. Cost
+*   is roughly O(N x K) for N registered types and K distinct constructor
+*   argument signatures - and the constant is large.
+* - Measured with GCC 15 at `-Os` on a 260-type registry: instantiating the
+*   factory alone costs 3.94 s, and adding a *single* `emplace` call site takes
+*   the translation unit to 21.24 s. A registry of a few hundred types is
+*   therefore already enough to dominate a build; the "very large registry"
+*   threshold an earlier version of this note put at 1,000+ types was optimistic.
+* - Prefer to confine `emplace` to as few call sites and as few distinct argument
+*   signatures as possible: a second signature costs another N instantiations.
+* - Runtime is unaffected. The emitted code is a constant-time hash lookup and an
+*   indexed slot scan whatever N is.
 *
 * ## Components
 * - `etools::factories::dispatch_factory<Base, Extractor, Regs...>` - full implementation.
