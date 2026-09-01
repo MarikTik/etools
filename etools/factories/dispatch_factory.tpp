@@ -90,10 +90,28 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     dispatch_factory<Base, Extractor, Regs...>::~dispatch_factory() noexcept
     {
+        // A plain loop, deliberately, where `std::all_of` would read better.
+        //
+        // libstdc++ implements `all_of` through four layers of predicate adaptor
+        // (`__ops::__pred_iter`, `_Iter_pred`, `__negate`, `_Iter_negate`), and
+        // each layer is a class template parameterised on the predicate - which
+        // here is a lambda that has captured `this`, so its type embeds the
+        // *entire* factory type, and therefore every registered type with its
+        // full parameter list.
+        //
+        // The result is symbol names measured in kilobytes apiece, thousands of
+        // them, and the compiler spends its time mangling and hashing strings
+        // rather than compiling code. At 260 registered types this one call was
+        // 13 seconds of a 21-second translation unit, with the object file's
+        // string tables larger than its code by an order of magnitude.
+        //
+        // A range-for needs no adaptors, so nothing re-encodes the factory type.
+        // Same semantics, same generated code.
         bool all_empty = true;
         meta::for_each(_slots, [&all_empty](const auto& arr) noexcept {
-            all_empty = all_empty and std::all_of(arr.begin(), arr.end(),
-                [](const auto& opt) noexcept { return !opt.has_value(); });
+            for (const auto& opt : arr) {
+                if (opt.has_value()) { all_empty = false; break; }
+            }
         });
         detail::assert_slots_all_empty(all_empty);
     }
