@@ -79,9 +79,19 @@ namespace etools::meta {
     namespace detail {
 
         /// @brief One element, tagged by its index so two equal types stay distinct bases.
+        ///
+        /// @note `T value{}` would be wrong here: a default member initialiser is
+        ///       part of the class definition, so it is required to be valid as
+        ///       soon as `leaf` is instantiated - which makes merely *naming*
+        ///       `tuple<T>` an error for any `T` that is not default-constructible,
+        ///       even where the tuple is never default-constructed. Leaving the
+        ///       member uninitialised keeps that requirement where the standard
+        ///       puts it, on the constructor, and `tuple`'s own `= default`
+        ///       constructor is then implicitly deleted for such a `T` rather
+        ///       than ill-formed.
         template<std::size_t I, typename T>
         struct leaf {
-            T value{};
+            T value;
         };
 
         /// @brief All leaves as direct bases: depth 1, not depth N.
