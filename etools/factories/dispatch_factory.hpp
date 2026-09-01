@@ -102,6 +102,7 @@
 #define ETOOLS_FACTORIES_DISPATCH_FACTORY_HPP_
 #include "utils/capacity.hpp"
 #include "../meta/typelist.hpp"
+#include "../meta/flat_tuple.hpp"
 #include "../meta/traits.hpp"
 #include "../hashing/optimal_mph.hpp"
 #include <algorithm>
@@ -346,7 +347,7 @@ namespace etools::factories {
         * `std::get<I>(_slots)` yields `std::array<std::optional<T>, N>` for registration `I`.
         * The MPH maps a key to the tuple index in declaration order.
         */
-        std::tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
+        meta::flat_tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
     };
 
     /**

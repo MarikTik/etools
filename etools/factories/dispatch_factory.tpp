@@ -90,10 +90,12 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     dispatch_factory<Base, Extractor, Regs...>::~dispatch_factory() noexcept
     {
-        detail::assert_slots_all_empty(std::apply([](const auto&... arrs) noexcept {
-            return (std::all_of(arrs.begin(), arrs.end(),
-                [](const auto& opt) noexcept { return !opt.has_value(); }) and ...);
-        }, _slots));
+        bool all_empty = true;
+        meta::for_each(_slots, [&all_empty](const auto& arr) noexcept {
+            all_empty = all_empty and std::all_of(arr.begin(), arr.end(),
+                [](const auto& opt) noexcept { return !opt.has_value(); });
+        });
+        detail::assert_slots_all_empty(all_empty);
     }
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
@@ -120,7 +122,7 @@ namespace etools::factories {
         detail::assert_key_is_registered(index, type_count);
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, slot_index](auto I) noexcept {
-                auto& arr = std::get<I()>(_slots);
+                auto& arr = meta::get<I()>(_slots);
                 detail::assert_slot_in_range(slot_index, arr.size());
                 arr[slot_index].reset();
             });
@@ -159,7 +161,7 @@ namespace etools::factories {
             {
                 using target_t = typename reg_t<meta::nth_t<I(), Regs...>>::type;
                 if constexpr (std::is_constructible_v<target_t, Args&&...>) {
-                    auto& arr = std::get<I()>(_slots);
+                    auto& arr = meta::get<I()>(_slots);
                     for (std::size_t i = 0; i < arr.size(); ++i) {
                         if (!arr[i].has_value()) {
                             result   = &arr[i].emplace(std::forward<Args>(args)...);
