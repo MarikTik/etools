@@ -46,12 +46,32 @@ endif()
 # These are INTERFACE options: the tests' own CMakeLists raised them for the
 # test targets only, which left every downstream project to rediscover the
 # problem. Anything linking `etools` now inherits the budget it needs.
+#
+# ---
+#
+# Template instantiation depth.
+#
+# `is_distinct`, which every registry uses to reject duplicate keys, is a
+# recursive trait: `is_distinct<T, Rest...>` derives from `is_distinct<Rest...>`,
+# so the depth equals the number of registered types. GCC's default ceiling of
+# 900 is reached by an etask schema of about 900 tasks, and the diagnostic
+# points into traits.hpp rather than at anything the user wrote.
+#
+# Raised rather than rewritten: the recursion is *cheap* - 1,000 types measure
+# 2.14 s and 466 MB - and every flat reformulation tried was far worse. A
+# variable template per type instantiates N templates each folding N ways and
+# exhausted 3 GB at 500 types; one empty base per type is ill-formed on a
+# duplicate rather than false, so it cannot answer the question at all. Depth is
+# a limit, not a cost, and a limit is what a flag is for.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(etools INTERFACE -fconstexpr-steps=2147483647)
+    target_compile_options(etools INTERFACE
+        -fconstexpr-steps=2147483647
+        -ftemplate-depth=8192)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(etools INTERFACE
         -fconstexpr-ops-limit=2147483647
-        -fconstexpr-loop-limit=2147483647)
+        -fconstexpr-loop-limit=2147483647
+        -ftemplate-depth=8192)
 elseif(MSVC)
     target_compile_options(etools INTERFACE /constexpr:depth2147483647)
 endif()
