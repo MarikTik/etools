@@ -31,6 +31,51 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     target_compile_options(etools INTERFACE -Wall -Wextra -pedantic)
 endif()
 
+# Constant-evaluation budget.
+#
+# `optimal_mph` builds its lookup table at compile time, and for a large key set
+# the FKS backend's construction exceeds every compiler's default budget for
+# constant evaluation. The failure is not a diagnostic about the user's code -
+# it reads as "must be initialized by a constant expression" pointing into
+# fks.hpp - so a consumer has no way to guess the remedy.
+#
+# Measured: a 260-key table is rejected by Clang 21 at its default 1,048,576
+# steps. GCC's default limit is higher and is not reached at that size, but the
+# same wall exists further out, so both are raised here.
+#
+# These are INTERFACE options: the tests' own CMakeLists raised them for the
+# test targets only, which left every downstream project to rediscover the
+# problem. Anything linking `etools` now inherits the budget it needs.
+#
+# ---
+#
+# Template instantiation depth.
+#
+# `is_distinct`, which every registry uses to reject duplicate keys, is a
+# recursive trait: `is_distinct<T, Rest...>` derives from `is_distinct<Rest...>`,
+# so the depth equals the number of registered types. GCC's default ceiling of
+# 900 is reached by an etask schema of about 900 tasks, and the diagnostic
+# points into traits.hpp rather than at anything the user wrote.
+#
+# Raised rather than rewritten: the recursion is *cheap* - 1,000 types measure
+# 2.14 s and 466 MB - and every flat reformulation tried was far worse. A
+# variable template per type instantiates N templates each folding N ways and
+# exhausted 3 GB at 500 types; one empty base per type is ill-formed on a
+# duplicate rather than false, so it cannot answer the question at all. Depth is
+# a limit, not a cost, and a limit is what a flag is for.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(etools INTERFACE
+        -fconstexpr-steps=2147483647
+        -ftemplate-depth=8192)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(etools INTERFACE
+        -fconstexpr-ops-limit=2147483647
+        -fconstexpr-loop-limit=2147483647
+        -ftemplate-depth=8192)
+elseif(MSVC)
+    target_compile_options(etools INTERFACE /constexpr:depth2147483647)
+endif()
+
 # ---------------------------------------------------------------------------------------
 # Dependencies (FetchContent): eser
 # Keep third-party fetches explicit and minimal.

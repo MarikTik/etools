@@ -17,7 +17,102 @@
 #define ETOOLS_FACTORIES_DISPATCH_FACTORY_TPP_
 #include "dispatch_factory.hpp"
 #include <cassert>
+#include <cstddef>
 namespace etools::factories {
+
+    /**
+    * @namespace etools::factories::detail
+    * @brief Internal helpers for `dispatch_factory`; not part of the public API.
+    */
+    namespace detail {
+
+        /**
+        * @brief The factory's contract checks, as plain functions.
+        *
+        * Each of these is a one-line `assert` that could equally well be written
+        * inline at its call site. It is not, for one reason: `assert` embeds
+        * `__PRETTY_FUNCTION__`, and inside `dispatch_factory` that expands to the
+        * class's full template-id - which names *every registered type* with its
+        * complete parameter list.
+        *
+        * The cost of that is quadratic. Each per-slot instantiation carries its own
+        * copy of a message that grows with the number of registered types, so N
+        * types produce N messages of O(N) length. Measured on an ESP32 with 100
+        * tasks, a single one of those strings reached 1,183,522 bytes and
+        * `.flash.rodata` grew to 1,262,324 bytes - enough on its own to push a
+        * project that links comfortably in release over the 1,310,720-byte flash
+        * budget. The same build with `NDEBUG` fits in 249,485 bytes.
+        *
+        * These functions are not templates, so their `__PRETTY_FUNCTION__` is a
+        * fixed sentence and the messages stop scaling. The checks themselves are
+        * unchanged, and still compile away entirely under `NDEBUG`.
+        *
+        * @note Taking plain integers rather than the factory's own `key_t` /
+        *       `slot_index_t` is deliberate: those are dependent types, and naming
+        *       one in a signature would put the template-id back into the message.
+        */
+        inline void assert_slots_all_empty(bool all_empty) noexcept
+        {
+            assert(all_empty
+                   && "dispatch_factory destroyed while it still owns live objects: "
+                      "every handle must be dropped before the factory goes out of scope");
+            (void)all_empty;
+        }
+
+        /// @brief The key resolved to a registered type. See @ref assert_slots_all_empty.
+        inline void assert_key_is_registered(std::size_t index, std::size_t type_count) noexcept
+        {
+            assert(index < type_count
+                   && "dispatch_factory::reset called with a key that is not registered; "
+                      "the key must come from a successful emplace");
+            (void)index;
+            (void)type_count;
+        }
+
+        /// @brief The slot lies inside its type's array. See @ref assert_slots_all_empty.
+        inline void assert_slot_in_range(std::size_t slot_index, std::size_t slot_count) noexcept
+        {
+            assert(slot_index < slot_count
+                   && "dispatch_factory::reset called with an out-of-range slot; "
+                      "the slot must come from a successful emplace");
+            (void)slot_index;
+            (void)slot_count;
+        }
+
+        /**
+        * @brief Whether every cell of one type's slot array is unoccupied.
+        *
+        * A free function template rather than a lambda inside the destructor,
+        * for the same reason the checks above are free functions: a lambda's
+        * closure type is a *local class*, so its mangled name embeds its entire
+        * enclosing scope - here `dispatch_factory<...>::~dispatch_factory()`,
+        * which names every registered type. At 340 types that scope is roughly
+        * 16 KB of mangled name.
+        *
+        * That only matters when the lambda is emitted rather than inlined, and
+        * at `-Os` past about 330 registered types GCC declines to inline it: the
+        * object grew from 103 KB at 320 types to 496 KB at 340, all of it symbol
+        * names, because each out-of-line copy carries the whole 16 KB scope to
+        * save a few bytes of code. The size heuristic does not weigh symbol
+        * names, so it makes a size decision that costs size.
+        *
+        * This function's name mentions only `Array`, so an out-of-line copy is
+        * cheap and the decision stops mattering.
+        *
+        * @tparam Array A `std::array<std::optional<T>, N>`.
+        * @param slots The array to inspect.
+        * @return Whether every cell is empty.
+        */
+        template<typename Array>
+        [[nodiscard]] constexpr bool slots_empty(const Array& slots) noexcept
+        {
+            for (const auto& slot : slots) {
+                if (slot.has_value()) return false;
+            }
+            return true;
+        }
+
+    } // namespace detail
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     void dispatch_factory<Base, Extractor, Regs...>::cell_deleter::operator()(Base*) const noexcept
@@ -28,10 +123,37 @@ namespace etools::factories {
     template <typename Base, template<typename> typename Extractor, typename... Regs>
     dispatch_factory<Base, Extractor, Regs...>::~dispatch_factory() noexcept
     {
-        assert(std::apply([](const auto&... arrs) noexcept {
-            return (std::all_of(arrs.begin(), arrs.end(),
-                [](const auto& opt) noexcept { return !opt.has_value(); }) and ...);
-        }, _slots));
+        // A plain loop, deliberately, where `std::all_of` would read better.
+        //
+        // libstdc++ implements `all_of` through four layers of predicate adaptor
+        // (`__ops::__pred_iter`, `_Iter_pred`, `__negate`, `_Iter_negate`), and
+        // each layer is a class template parameterised on the predicate - which
+        // here is a lambda that has captured `this`, so its type embeds the
+        // *entire* factory type, and therefore every registered type with its
+        // full parameter list.
+        //
+        // The result is symbol names measured in kilobytes apiece, thousands of
+        // them, and the compiler spends its time mangling and hashing strings
+        // rather than compiling code. At 260 registered types this one call was
+        // 13 seconds of a 21-second translation unit, with the object file's
+        // string tables larger than its code by an order of magnitude.
+        //
+        // A range-for needs no adaptors, so nothing re-encodes the factory type.
+        // Same semantics, same generated code.
+        //
+        // The traversal is a fold rather than `meta::for_each`, because a
+        // callable here would be a lambda scoped to this destructor - see
+        // `all_slots_empty`.
+        detail::assert_slots_all_empty(
+            all_slots_empty(std::index_sequence_for<Regs...>{}));
+    }
+
+    template <typename Base, template<typename> typename Extractor, typename... Regs>
+    template <std::size_t... Is>
+    bool dispatch_factory<Base, Extractor, Regs...>::all_slots_empty(
+        std::index_sequence<Is...>) const noexcept
+    {
+        return (detail::slots_empty(meta::get<Is>(_slots)) and ...);
     }
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
@@ -55,11 +177,11 @@ namespace etools::factories {
         constexpr const auto& table = mpht();
         std::size_t index = table(key);
         // Key and slot originate from a successful emplace - both must be valid.
-        assert(index < type_count);
+        detail::assert_key_is_registered(index, type_count);
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, slot_index](auto I) noexcept {
-                auto& arr = std::get<I()>(_slots);
-                assert(slot_index < arr.size());
+                auto& arr = meta::get<I()>(_slots);
+                detail::assert_slot_in_range(slot_index, arr.size());
                 arr[slot_index].reset();
             });
     }
@@ -87,9 +209,16 @@ namespace etools::factories {
     Base* dispatch_factory<Base, Extractor, Regs...>::dispatch(std::size_t index, slot_index_t& out_slot, Args&&... args)
         noexcept(nothrow_emplace_v<Args...>)
     {
-        // Compilation bottleneck for very large registries (>2000 types) due to nth_t.
-        // For k constructor signatures and n types: O(k*n) compile time.
-        // Future: replace nth_t with meta::pack_at_t to amortize to O(n+k).
+        // One `emplace` call site instantiates a body per registered type, so
+        // this function's cost is linear in the registry and paid again for every
+        // distinct `Args...`. Measured at 260 types, GCC 15 -Os: 2.09 s for the
+        // factory alone, 7.66 s once a single `emplace<buffer_view>` is added.
+        //
+        // Two things it is *not*. Not `nth_t`, which an earlier note here blamed:
+        // it resolves through `__type_pack_element` (see meta/traits.hpp), so it
+        // is O(1) per lookup and all 260 indices cost 0.23 s. And not the
+        // dominant term in a large build - the destructor's emptiness check was
+        // three times this, for the reason documented there.
         Base* result = nullptr;
         index_dispatch(index, std::index_sequence_for<Regs...>{},
             [this, &result, &out_slot, &args...](auto I)
@@ -97,7 +226,7 @@ namespace etools::factories {
             {
                 using target_t = typename reg_t<meta::nth_t<I(), Regs...>>::type;
                 if constexpr (std::is_constructible_v<target_t, Args&&...>) {
-                    auto& arr = std::get<I()>(_slots);
+                    auto& arr = meta::get<I()>(_slots);
                     for (std::size_t i = 0; i < arr.size(); ++i) {
                         if (!arr[i].has_value()) {
                             result   = &arr[i].emplace(std::forward<Args>(args)...);

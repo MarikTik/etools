@@ -25,12 +25,19 @@
 *   Bare types are accepted and treated as `capacity<T, 1>`.
 *
 * ## Compile-time Considerations
-* - Dispatch is implemented via a fold expression across all registered types.
-* - For very large registries (1,000+ types with many constructor variations),
-*   compile times may become significant. On non-professional systems this can
-*   impact developer experience. The generated code remains efficient at runtime.
-* - **Compile-time:** Roughly O(N x K), where N is the number of registered types
-*   and K is the number of distinct constructor argument signatures seen.
+* - Dispatch is implemented via a fold expression across all registered types, so
+*   **each `emplace` call site instantiates one body per registered type**. Cost
+*   is roughly O(N x K) for N registered types and K distinct constructor
+*   argument signatures - and the constant is large.
+* - Measured with GCC 15 at `-Os` on a 260-type registry: instantiating the
+*   factory alone costs 3.94 s, and adding a *single* `emplace` call site takes
+*   the translation unit to 21.24 s. A registry of a few hundred types is
+*   therefore already enough to dominate a build; the "very large registry"
+*   threshold an earlier version of this note put at 1,000+ types was optimistic.
+* - Prefer to confine `emplace` to as few call sites and as few distinct argument
+*   signatures as possible: a second signature costs another N instantiations.
+* - Runtime is unaffected. The emitted code is a constant-time hash lookup and an
+*   indexed slot scan whatever N is.
 *
 * ## Components
 * - `etools::factories::dispatch_factory<Base, Extractor, Regs...>` - full implementation.
@@ -102,6 +109,7 @@
 #define ETOOLS_FACTORIES_DISPATCH_FACTORY_HPP_
 #include "utils/capacity.hpp"
 #include "../meta/typelist.hpp"
+#include "../meta/tuple.hpp"
 #include "../meta/traits.hpp"
 #include "../hashing/optimal_mph.hpp"
 #include <algorithm>
@@ -318,6 +326,30 @@ namespace etools::factories {
         static void index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn)
             noexcept(noexcept(fn(std::integral_constant<std::size_t, 0>{})));
         /**
+        * @brief Whether every slot of every registered type is unoccupied.
+        *
+        * Takes an index sequence and folds over it directly rather than passing
+        * a callable to `meta::for_each`, because **any** callable here would be
+        * a lambda declared inside a member of this class, and a lambda's closure
+        * type is a local class whose mangled name embeds its entire enclosing
+        * scope - which names every registered type.
+        *
+        * That is free while the lambda is inlined and expensive when it is not.
+        * At `-Os` past roughly 330 registered types GCC stops inlining it, and
+        * the object grew from 103 KB at 320 types to 496 KB at 340 - almost
+        * entirely symbol names. Moving the lambda's *body* into a free function
+        * made it worse, not better (4.3 MB), because a cheaper body is easier to
+        * decline to inline: 143 out-of-line copies instead of 13.
+        *
+        * A fold has no closure to name, so there is nothing for the inliner to
+        * decide about.
+        *
+        * @tparam Is The slot indices, `0..type_count-1`.
+        * @return Whether the factory owns no live object.
+        */
+        template<std::size_t... Is>
+        [[nodiscard]] bool all_slots_empty(std::index_sequence<Is...>) const noexcept;
+        /**
         * @brief Accessor for the canonical compile-time lookup artifact.
         *
         * @return `constexpr const&` to the MPH singleton for the extracted keys.
@@ -346,7 +378,7 @@ namespace etools::factories {
         * `std::get<I>(_slots)` yields `std::array<std::optional<T>, N>` for registration `I`.
         * The MPH maps a key to the tuple index in declaration order.
         */
-        std::tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
+        meta::tuple<std::array<std::optional<typename reg_t<Regs>::type>, reg_t<Regs>::count>...> _slots{};
     };
 
     /**
