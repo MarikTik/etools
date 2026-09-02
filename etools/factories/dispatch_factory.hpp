@@ -326,6 +326,30 @@ namespace etools::factories {
         static void index_dispatch(std::size_t index, std::index_sequence<Is...>, Fn&& fn)
             noexcept(noexcept(fn(std::integral_constant<std::size_t, 0>{})));
         /**
+        * @brief Whether every slot of every registered type is unoccupied.
+        *
+        * Takes an index sequence and folds over it directly rather than passing
+        * a callable to `meta::for_each`, because **any** callable here would be
+        * a lambda declared inside a member of this class, and a lambda's closure
+        * type is a local class whose mangled name embeds its entire enclosing
+        * scope - which names every registered type.
+        *
+        * That is free while the lambda is inlined and expensive when it is not.
+        * At `-Os` past roughly 330 registered types GCC stops inlining it, and
+        * the object grew from 103 KB at 320 types to 496 KB at 340 - almost
+        * entirely symbol names. Moving the lambda's *body* into a free function
+        * made it worse, not better (4.3 MB), because a cheaper body is easier to
+        * decline to inline: 143 out-of-line copies instead of 13.
+        *
+        * A fold has no closure to name, so there is nothing for the inliner to
+        * decide about.
+        *
+        * @tparam Is The slot indices, `0..type_count-1`.
+        * @return Whether the factory owns no live object.
+        */
+        template<std::size_t... Is>
+        [[nodiscard]] bool all_slots_empty(std::index_sequence<Is...>) const noexcept;
+        /**
         * @brief Accessor for the canonical compile-time lookup artifact.
         *
         * @return `constexpr const&` to the MPH singleton for the extracted keys.

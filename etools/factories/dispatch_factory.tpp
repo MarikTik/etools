@@ -79,6 +79,39 @@ namespace etools::factories {
             (void)slot_count;
         }
 
+        /**
+        * @brief Whether every cell of one type's slot array is unoccupied.
+        *
+        * A free function template rather than a lambda inside the destructor,
+        * for the same reason the checks above are free functions: a lambda's
+        * closure type is a *local class*, so its mangled name embeds its entire
+        * enclosing scope - here `dispatch_factory<...>::~dispatch_factory()`,
+        * which names every registered type. At 340 types that scope is roughly
+        * 16 KB of mangled name.
+        *
+        * That only matters when the lambda is emitted rather than inlined, and
+        * at `-Os` past about 330 registered types GCC declines to inline it: the
+        * object grew from 103 KB at 320 types to 496 KB at 340, all of it symbol
+        * names, because each out-of-line copy carries the whole 16 KB scope to
+        * save a few bytes of code. The size heuristic does not weigh symbol
+        * names, so it makes a size decision that costs size.
+        *
+        * This function's name mentions only `Array`, so an out-of-line copy is
+        * cheap and the decision stops mattering.
+        *
+        * @tparam Array A `std::array<std::optional<T>, N>`.
+        * @param slots The array to inspect.
+        * @return Whether every cell is empty.
+        */
+        template<typename Array>
+        [[nodiscard]] constexpr bool slots_empty(const Array& slots) noexcept
+        {
+            for (const auto& slot : slots) {
+                if (slot.has_value()) return false;
+            }
+            return true;
+        }
+
     } // namespace detail
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
@@ -107,13 +140,20 @@ namespace etools::factories {
         //
         // A range-for needs no adaptors, so nothing re-encodes the factory type.
         // Same semantics, same generated code.
-        bool all_empty = true;
-        meta::for_each(_slots, [&all_empty](const auto& arr) noexcept {
-            for (const auto& opt : arr) {
-                if (opt.has_value()) { all_empty = false; break; }
-            }
-        });
-        detail::assert_slots_all_empty(all_empty);
+        //
+        // The traversal is a fold rather than `meta::for_each`, because a
+        // callable here would be a lambda scoped to this destructor - see
+        // `all_slots_empty`.
+        detail::assert_slots_all_empty(
+            all_slots_empty(std::index_sequence_for<Regs...>{}));
+    }
+
+    template <typename Base, template<typename> typename Extractor, typename... Regs>
+    template <std::size_t... Is>
+    bool dispatch_factory<Base, Extractor, Regs...>::all_slots_empty(
+        std::index_sequence<Is...>) const noexcept
+    {
+        return (detail::slots_empty(meta::get<Is>(_slots)) and ...);
     }
 
     template <typename Base, template<typename> typename Extractor, typename... Regs>
